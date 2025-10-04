@@ -1,6 +1,6 @@
 {
   "expo": {
-     "name": "SportyGo",
+    "name": "SportyGo",
     "slug": "SportyGo",
     "version": "0.0.1",
     "orientation": "portrait",
@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.sparkpro.sportygo",
+      "bundleIdentifier": "com.sparkpro.SportyGo",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -20,8 +20,9 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.sparkpro.sportygo",
+      "package": "com.sparkpro.SportyGo",
       "permissions": [
+        "android.permission.RECORD_AUDIO",
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -29,6 +30,11 @@
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
+    },
+    "updates": {
+      "enabled": true,
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/e7f41d17-0883-408b-a1b0-ae9f088e7796"
     },
     "plugins": [
       "expo-router",
@@ -80,6 +86,9 @@
       "eas": {
         "projectId": "e7f41d17-0883-408b-a1b0-ae9f088e7796"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }
