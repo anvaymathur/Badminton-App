@@ -11,7 +11,7 @@ const getUniqueIdentifier = () => {
       return 'com.sparkpro.sportygo.preview';
     }
   
-    return 'com.sparkpro.SportyGo';
+    return 'com.sparkpro.sportygo';
   };
   
   const getAppName = () => {
