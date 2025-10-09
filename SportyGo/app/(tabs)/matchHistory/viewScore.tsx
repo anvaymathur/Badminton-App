@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useRef, useCallback } from "react";
 import {
   ScrollView,
   View,
@@ -18,7 +18,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
-import { getUserProfile, getUserMatchHistory } from '../../../firebase/services_firestore2';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { FlatList, ViewToken } from 'react-native';
+import { getUserProfile, getUserMatchHistory, getUserProfilesByIds } from '../../../firebase/services_firestore2';
 import { newMatchHistory } from "@/firebase/types_index";
 import { UserContext } from '../../components/userContext';
 import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
@@ -30,7 +32,8 @@ const STATUS_COLORS = {
   loseBg: '#FEE2E2',  // light red
 } as const;
 
-// Mock data structure for match history
+// Cache TTL: 10 minutes
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
 export default function ViewScore() {
   const router = useRouter();
@@ -38,43 +41,120 @@ export default function ViewScore() {
   const {globalUser} = useContext(UserContext)
   const [matchHistory, setMatchHistory] = useState<newMatchHistory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
+  const loadedNamesFromCacheRef = useRef(false);
+  const visibleIdsRef = useRef<Set<string>>(new Set());
 
-  let userName: string = ""
-  let userID: string = ""
+  const userName: string = globalUser?.name ?? "";
+  const userID: string = user?.sub ?? "";
 
-  if (globalUser && user && globalUser.name && user.sub){
-    userName = globalUser.name
-    userID = user.sub
-  }
+  const isFresh = (ts?: number) => ts && (Date.now() - ts) < CACHE_TTL_MS;
 
+  const mhStorageKey = userID ? `mh:${userID}` : undefined;
 
-
-  useEffect(() => {
-    // const fetchPlayers = async () => {
-    //   try {
-    //     const fetchedPlayers = await getAllUserProfiles();
-    //     if (fetchedPlayers && Array.isArray(fetchedPlayers)) {
-    //       const uniqueNames = [...new Set(fetchedPlayers.map(player => player.Name).filter(name => name !== ""))];
-    //       setPlayers(uniqueNames);
-    //     } else {
-    //       setPlayers([]);
-    //     }
-    //   } catch (error) {
-    //     setPlayers([]);
-    //   }
-    // };
-
-
-
-    const fetchMatchHistory = async () => {
-      setLoading(true);
+  const refreshFromNetwork = useCallback(async (showSpinner: boolean) => {
+    if (!userID) return;
+    if (showSpinner) setLoading(true);
+    try {
       const userMatchHistory = await getUserMatchHistory(userID);
-      setMatchHistory(userMatchHistory); 
-      setLoading(false);
+      setMatchHistory(userMatchHistory ?? []);
+      if (mhStorageKey) {
+        await AsyncStorage.setItem(mhStorageKey, JSON.stringify({ ts: Date.now(), data: userMatchHistory ?? [] }));
+      }
+    } catch {
+      // keep whatever we had
+    } finally {
+      if (showSpinner) setLoading(false);
+    }
+  }, [userID, mhStorageKey]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshFromNetwork(false);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshFromNetwork]);
+
+  // Load cached match history immediately, then refresh in background
+  useEffect(() => {
+    const loadAndRefresh = async () => {
+      if (!userID || !mhStorageKey) return;
+
+      try {
+        const cached = await AsyncStorage.getItem(mhStorageKey);
+        if (cached) {
+          const parsed = JSON.parse(cached) as { ts: number; data: newMatchHistory[] };
+          setMatchHistory(parsed.data ?? []);
+          setLoading(false);
+          if (isFresh(parsed.ts)) {
+            // Fresh enough, also kick off a silent refresh
+            refreshFromNetwork(false);
+            return;
+          }
+        }
+      } catch {}
+
+      // No cache or stale cache: fetch and show
+      await refreshFromNetwork(true);
     };
 
-    fetchMatchHistory();
+    loadAndRefresh();
+  }, [userID, mhStorageKey, refreshFromNetwork]);
+
+  // Preload cached player names once, then ensure we fetch any missing names for visible items first
+  useEffect(() => {
+    const loadNamesCache = async () => {
+      if (loadedNamesFromCacheRef.current) return;
+      try {
+        const cached = await AsyncStorage.getItem('playerNames');
+        if (cached) {
+          const parsed = JSON.parse(cached) as { ts: number; data: Record<string, string> };
+          setPlayerNames(parsed.data ?? {});
+        }
+      } catch {}
+      loadedNamesFromCacheRef.current = true;
+    };
+    loadNamesCache();
   }, []);
+
+  // Lazy-load names for visible items first
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<ViewToken> }) => {
+    const ids = new Set<string>(visibleIdsRef.current);
+    for (const v of viewableItems) {
+      const item = v.item as newMatchHistory;
+      if (item?.team1?.[0]) ids.add(item.team1[0]);
+      if (item?.team1?.[1]) ids.add(item.team1[1]);
+      if (item?.team2?.[0]) ids.add(item.team2[0]);
+      if (item?.team2?.[1]) ids.add(item.team2[1]);
+    }
+    visibleIdsRef.current = ids;
+  }).current;
+
+  useEffect(() => {
+    const populateVisibleNames = async () => {
+      const idsToFetch = Array.from(visibleIdsRef.current).filter((id) => !(id in playerNames));
+      if (idsToFetch.length === 0) return;
+      try {
+        const map = await getUserProfilesByIds(idsToFetch);
+        const newMap: Record<string, string> = {};
+        for (const id of idsToFetch) {
+          const profile = map[id];
+          newMap[id] = profile?.Name ?? id;
+        }
+        if (Object.keys(newMap).length > 0) {
+          setPlayerNames((prev) => {
+            const merged = { ...prev, ...newMap };
+            AsyncStorage.setItem('playerNames', JSON.stringify({ ts: Date.now(), data: merged })).catch(() => {});
+            return merged;
+          });
+        }
+      } catch {}
+    };
+    populateVisibleNames();
+  });
 
   const getCurrentUserTeam = (match: newMatchHistory) => {
     
@@ -155,24 +235,129 @@ export default function ViewScore() {
     }
   };
 
-  const getPlayerDisplay = async (player1: string, player2?: string) => {
-    const player1Profile = await getUserProfile(player1);
+  const getPlayerDisplay = (player1: string, player2?: string) => {
+    const player1Name = playerNames[player1] ?? player1;
     if (player2) {
-      const player2Profile = await getUserProfile(player2);
-      // Safely handle possibly undefined profiles
-      return `${player1Profile?.Name ?? player1} & ${player2Profile?.Name ?? player2}`;
+      const player2Name = playerNames[player2] ?? player2;
+      return `${player1Name} & ${player2Name}`;
     }
-    return player1Profile?.Name ?? player1;
+    return player1Name;
   };
 
-    if (loading) {
-        return (
-        <YStack flex={1} bg="$background" justify="center" verticalAlign="center" space="$4">
-            <Spinner size="large" color="$color9" />
-            <Text color="gray">Loading match history...</Text>
-      </YStack>
+  const renderItem = useCallback(({ item }: { item: newMatchHistory }) => {
+    const match = item;
+    const userTeam = getCurrentUserTeam(match);
+    const winningTeam = getTeamResult(match);
+    const isUserWinner = userTeam === winningTeam;
+    const isTie = winningTeam === "tie";
+
+    return (
+      <Card
+        padding="$4"
+        backgroundColor={getCardBackgroundColor(match)}
+        borderWidth={1}
+        borderColor="$borderColor"
+        elevation={2}
+        onPress={() => (router as any).push({ pathname: '/matchHistory/viewIndividualScore', params: { matchId: match.id } })}
+      >
+        <YStack space="$3">
+          <XStack justify="space-between" verticalAlign="center">
+            <YStack>
+              <Text fontSize="$2" color="$color">
+                {formatDate(match.date)}
+              </Text>
+            </YStack>
+          </XStack>
+
+          <Separator />
+
+          <YStack space="$3">
+            <XStack justify="space-between" verticalAlign="center">
+              <YStack flex={1}>
+                <Text fontSize="$3" fontWeight="600" color="$color">
+                  {getPlayerDisplay(match.team1[0], match.team1[1])}
+                </Text>
+                <Text fontSize="$2" color="$color10">
+                  Team 1
+                </Text>
+              </YStack>
+              <XStack space="$2" verticalAlign="center">
+                <Text fontSize="$6" fontWeight="bold" color="$color">
+                  {match.team1[2]}
+                </Text>
+                {winningTeam === "team1" && (
+                  <Ionicons name="trophy" size={20} color="#FFD700" />
+                )}
+              </XStack>
+            </XStack>
+
+            <XStack justify="center" verticalAlign="center">
+              <Card
+                padding="$2"
+                bg="$color9"
+                borderRadius="$2"
+                minWidth={40}
+                alignItems="center"
+              >
+                <Text fontWeight="bold" color="$color1" fontSize="$2">
+                  VS
+                </Text>
+              </Card>
+            </XStack>
+
+            <XStack justify="space-between" verticalAlign="center">
+              <YStack flex={1}>
+                <Text fontSize="$3" fontWeight="600" color="$color">
+                  {getPlayerDisplay(match.team2[0], match.team2[1])}
+                </Text>
+                <Text fontSize="$2" color="$color10">
+                  Team 2
+                </Text>
+              </YStack>
+              <XStack space="$2" verticalAlign="center">
+                <Text fontSize="$6" fontWeight="bold" color="$color">
+                  {match.team2[2]}
+                </Text>
+                {winningTeam === "team2" && (
+                  <Ionicons name="trophy" size={20} color="#FFD700" />
+                )}
+              </XStack>
+            </XStack>
+          </YStack>
+
+          {userTeam && (
+            <Card
+              padding="$2"
+              backgroundColor={isUserWinner ? STATUS_COLORS.winBg : isTie ? STATUS_COLORS.tieBg : STATUS_COLORS.loseBg}
+              borderRadius="$2"
+              alignItems="center"
+            >
+              <Text
+                fontSize="$2"
+                fontWeight="600"
+                color="$color"
+              >
+                {isUserWinner ? "🏆 You Won!" : isTie ? "🤝 It's a Tie!" : "😔 You Lost"}
+              </Text>
+            </Card>
+          )}
+        </YStack>
+      </Card>
     );
-  }
+  }, [playerNames]);
+
+  const keyExtractor = useCallback((item: newMatchHistory, index: number) => {
+    return (item as any).id || `${item.team1?.[0] ?? 't1a'}-${item.team2?.[0] ?? 't2a'}-${(item as any)?.date?.toString?.() ?? index}`;
+  }, []);
+
+  if (loading || !userID) {
+      return (
+      <YStack flex={1} bg="$background" justify="center" verticalAlign="center" space="$4">
+          <Spinner size="large" color="$color9" />
+          <Text color="gray">Loading match history...</Text>
+    </YStack>
+  );
+}
 
   return (
     <SafeAreaWrapper>
@@ -198,153 +383,35 @@ export default function ViewScore() {
           />
         </XStack>
 
-        <ScrollView flex={1} p="$4" showsVerticalScrollIndicator={false}>
-          <YStack space="$4" pb="$8">
-            {(() => {
-              if (matchHistory.length === 0) {
-                return (
-                  <Card padding="$6" backgroundColor="$color2" borderWidth={1} borderColor="$borderColor">
-                    <YStack space="$3" verticalAlign="center">
-                      <Ionicons name="trophy-outline" size={48} color="#666" />
-                      <H5 color="$color">No matches yet</H5>
-                      <Paragraph color="$color10" style={{textAlign: "center"}}>
-                        Start playing matches to see your history here
-                      </Paragraph>
-                      <Button
-                        bg="$color9"
-                        color="$color1"
-                        onPress={() => router.push('/matchHistory/addScore')}
-                        mt="$2"
-                      >
-                        Add First Match
-                      </Button>
-                    </YStack>
-                  </Card>
-                );
-              } else {
-                return matchHistory.map((match) => {
-                  const userTeam = getCurrentUserTeam(match);
-                  const winningTeam = getTeamResult(match);
-                  const isUserWinner = userTeam === winningTeam;
-                  const isTie = winningTeam === "tie";
-
-                  return (
-                    <Card
-                      key={`${match.team1[0]}-${match.team2[0]}-${match.date.toString()}`}
-                      padding="$4"
-                      backgroundColor={getCardBackgroundColor(match)}
-                      borderWidth={1}
-                      borderColor="$borderColor"
-                      elevation={2}
-                      onPress={() => (router as any).push({ pathname: '/matchHistory/viewIndividualScore', params: { matchId: match.id } })}
-                    >
-                      <YStack space="$3">
-                        {/* Header with date and tournament */}
-                        <XStack justify="space-between" verticalAlign="center">
-                          <YStack>
-                            <Text fontSize="$2" color="$color">
-                              {formatDate(match.date)}
-                            </Text>
-                            {/* {match.tournament && (
-                              <Badge size="$2" backgroundColor="$blue8" color="white">
-                                {match.tournament}
-                              </Badge>
-                            )}*/}
-                          </YStack> 
-                          {/* <Badge
-                            size="$2"
-                            backgroundColor={match.matchType === "doubles" ? "$purple8" : "$orange8"}
-                            color="white"
-                          >
-                            {match.matchType === "doubles" ? "Doubles" : "Singles"}
-                          </Badge> */}
-                        </XStack>
-
-                        <Separator />
-
-                        {/* Match Details */}
-                        <YStack space="$3">
-                          {/* Team 1 */}
-                          <XStack justify="space-between" verticalAlign="center">
-                            <YStack flex={1}>
-                              <Text fontSize="$3" fontWeight="600" color="$color">
-                                {getPlayerDisplay(match.team1[0], match.team1[1])}
-                              </Text>
-                              <Text fontSize="$2" color="$color10">
-                                Team 1
-                              </Text>
-                            </YStack>
-                            <XStack space="$2" verticalAlign="center">
-                              <Text fontSize="$6" fontWeight="bold" color="$color">
-                                {match.team1[2]}
-                              </Text>
-                              {winningTeam === "team1" && (
-                                <Ionicons name="trophy" size={20} color="#FFD700" />
-                              )}
-                            </XStack>
-                          </XStack>
-
-                          {/* VS */}
-                          <XStack justify="center" verticalAlign="center">
-                            <Card
-                              padding="$2"
-                              bg="$color9"
-                              borderRadius="$2"
-                              minWidth={40}
-                              alignItems="center"
-                            >
-                              <Text fontWeight="bold" color="$color1" fontSize="$2">
-                                VS
-                              </Text>
-                            </Card>
-                          </XStack>
-
-                          {/* Team 2 */}
-                          <XStack justify="space-between" verticalAlign="center">
-                            <YStack flex={1}>
-                              <Text fontSize="$3" fontWeight="600" color="$color">
-                                {getPlayerDisplay(match.team2[0], match.team2[1])}
-                              </Text>
-                              <Text fontSize="$2" color="$color10">
-                                Team 2
-                              </Text>
-                            </YStack>
-                            <XStack space="$2" verticalAlign="center">
-                              <Text fontSize="$6" fontWeight="bold" color="$color">
-                                {match.team2[2]}
-                              </Text>
-                              {winningTeam === "team2" && (
-                                <Ionicons name="trophy" size={20} color="#FFD700" />
-                              )}
-                            </XStack>
-                          </XStack>
-                        </YStack>
-
-                        {/* Result indicator */}
-                        {userTeam && (
-                          <Card
-                            padding="$2"
-                            backgroundColor={isUserWinner ? STATUS_COLORS.winBg : isTie ? STATUS_COLORS.tieBg : STATUS_COLORS.loseBg}
-                            borderRadius="$2"
-                            alignItems="center"
-                          >
-                            <Text
-                              fontSize="$2"
-                              fontWeight="600"
-                              color="$color"
-                            >
-                              {isUserWinner ? "🏆 You Won!" : isTie ? "🤝 It's a Tie!" : "😔 You Lost"}
-                            </Text>
-                          </Card>
-                        )}
-                      </YStack>
-                    </Card>
-                  );
-                });
-              }
-            })()}
-          </YStack>
-        </ScrollView>
+        <FlatList
+          data={matchHistory}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={{ itemVisiblePercentThreshold: 25 }}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          ListEmptyComponent={() => (
+            <Card padding="$6" backgroundColor="$color2" borderWidth={1} borderColor="$borderColor">
+              <YStack space="$3" verticalAlign="center">
+                <Ionicons name="trophy-outline" size={48} color="#666" />
+                <H5 color="$color">No matches yet</H5>
+                <Paragraph color="$color10" style={{textAlign: "center"}}>
+                  Start playing matches to see your history here
+                </Paragraph>
+                <Button
+                  bg="$color9"
+                  color="$color1"
+                  onPress={() => router.push('/matchHistory/addScore')}
+                  mt="$2"
+                >
+                  Add First Match
+                </Button>
+              </YStack>
+            </Card>
+          )}
+        />
       </View>
     </SafeAreaWrapper>
   );

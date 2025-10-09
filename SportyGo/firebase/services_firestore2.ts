@@ -9,7 +9,7 @@
 import {
   getFirestore, collection, doc, setDoc, getDoc, updateDoc, writeBatch, onSnapshot,
   increment, arrayUnion, CollectionReference, QueryDocumentSnapshot, DocumentData, getDocs, query, where,
-  Timestamp, deleteDoc,
+  Timestamp, deleteDoc, documentId, or
 } from "firebase/firestore";
 import { db, storage} from "./index";
 import { UserDoc, GroupDoc, EventDoc, VoteShard, VoteStatus, newMatchHistory, AttendanceRecord, GroupInviteDoc } from "./types_index";
@@ -283,6 +283,24 @@ export async function getUsersByIds(userIds: string[]): Promise<UserDoc[]> {
     if (profile) users.push(profile);
   }
   return users;
+}
+
+// Batched fetch for user profiles using documentId() and chunking (max 10 IDs per query)
+export async function getUserProfilesByIds(userIds: string[]): Promise<Record<string, UserDoc | undefined>> {
+  if (!userIds || userIds.length === 0) return {};
+  const usersCol = collection(db, "users");
+  const result: Record<string, UserDoc | undefined> = {};
+  const chunkSize = 10; // Firestore limit for 'in' queries
+  for (let i = 0; i < userIds.length; i += chunkSize) {
+    const chunk = userIds.slice(i, i + chunkSize);
+    const q = query(usersCol, where(documentId(), 'in', chunk));
+    const snap = await getDocs(q);
+    snap.forEach(d => {
+      result[d.id] = { id: d.id, ...d.data() } as UserDoc;
+    });
+    // Any IDs not returned will remain undefined
+  }
+  return result;
 }
 
 function incrementOrPushToArray(groupId: string) {
@@ -651,16 +669,18 @@ export async function createMatchHistory(matchData: newMatchHistory) {
 
 export async function getUserMatchHistory(userId: string): Promise<newMatchHistory[]> {
   const matchHistoryCol = collection(db, "matchHistory");
-  const snapshot = await getDocs(matchHistoryCol);
-  const userMatches: newMatchHistory[] = [];
-  snapshot.forEach(doc => {
-    const matchData = doc.data() as newMatchHistory;
-    // Check if user participated in either team
-    const isInTeam1 = matchData.team1[0] === userId || matchData.team1[1] === userId;
-    const isInTeam2 = matchData.team2[0] === userId || matchData.team2[1] === userId;
-    if (isInTeam1 || isInTeam2) {
-      userMatches.push(matchData);
-    }
+  // Query only documents where userId is in either team1 or team2
+  const q = query(
+    matchHistoryCol,
+    or(
+      where('team1', 'array-contains', userId),
+      where('team2', 'array-contains', userId)
+    )
+  );
+  const snapshot = await getDocs(q);
+  const userMatches: newMatchHistory[] = snapshot.docs.map(d => {
+    const data = d.data() as newMatchHistory;
+    return { ...data, id: (data as any).id ?? d.id } as newMatchHistory;
   });
   
   // Sort by date (most recent first) with proper Firestore timestamp handling
