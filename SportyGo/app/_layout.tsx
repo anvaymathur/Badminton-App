@@ -17,10 +17,10 @@ export default function RootLayout() {
             <TamaguiProvider config={config}>
               <PortalProvider shouldAddRootHost>
                 <Theme name="earthy-sport-light">
-                 <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="index"  />
-                  <Stack.Screen name="(tabs)" />
-                 </Stack>
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="index"  />
+                    <Stack.Screen name="(tabs)" />
+                  </Stack>
                 </Theme>
               </PortalProvider>
             </TamaguiProvider>

@@ -129,7 +129,7 @@ export default function AddMembers() {
 
   const generateInviteLink = async () => {
     const inviteCode = nanoid(6);
-    const inviteLink = `https://anvaymathur.github.io/Badminton-App/groups/${inviteCode}`;
+    const inviteLink = `https://sportygo-sparkpro.web.app/groups/${inviteCode}`;
 
     if (!group) {
         Alert.alert("Error", "Failed to load group information");
