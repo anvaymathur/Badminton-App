@@ -1,0 +1,25 @@
+<body>
+  <p id="message">Redirecting to SportyGo app…</p>
+  <script>
+    const pathParts = window.location.pathname.split('/');
+    const inviteCode = pathParts[pathParts.length - 1];
+
+    const appLink = `sportygo://join?inviteCode=${encodeURIComponent(inviteCode)}`;
+    const androidStoreURL = "https://play.google.com/store/apps/details?id=com.sparkpro.sportygo";
+
+    // Show the redirect message immediately
+    document.getElementById('message').innerText = `Attempting to open app with invite code: ${inviteCode}`;
+
+    // Only try to redirect if on mobile
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    if (/android/i.test(userAgent)) {
+      setTimeout(() => { window.location.href = androidStoreURL; }, 1500);
+    } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
+      // iOS redirect placeholder (you can uncomment iosStoreURL if you add it)
+      // setTimeout(() => { window.location.href = iosStoreURL; }, 1500);
+      document.getElementById('message').innerText += "\nOn iOS: would redirect to App Store";
+    } else {
+      document.getElementById('message').innerText += "\nNot on mobile: can't redirect to app";
+    }
+  </script>
+</body>
