@@ -1,25 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Open SportyGo App</title>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      text-align: center;
+      padding: 20px;
+    }
+
+    button {
+      padding: 15px 30px;
+      font-size: 18px;
+      margin-top: 20px;
+      cursor: pointer;
+      border-radius: 8px;
+      background-color: #007AFF;
+      color: white;
+      border: none;
+    }
+
+    p {
+      font-size: 16px;
+    }
+  </style>
+</head>
 <body>
-  <p id="message">Redirecting to SportyGo app…</p>
+  <h1>Open SportyGo App</h1>
+  <p>Tap the button below to open the app and join the group.</p>
+
+  <button id="openAppBtn">Open App</button>
+
   <script>
     const pathParts = window.location.pathname.split('/');
     const inviteCode = pathParts[pathParts.length - 1];
 
-    const appLink = `sportygo://join?inviteCode=${encodeURIComponent(inviteCode)}`;
-    const androidStoreURL = "https://play.google.com/store/apps/details?id=com.sparkpro.sportygo";
+    // const iosStoreURL = "https://apps.apple.com/app/idYOUR_APPLE_ID"; // replace with your App Store ID
+    const androidPackage = "com.sparkpro.sportygo";
 
-    // Show the redirect message immediately
-    document.getElementById('message').innerText = `Attempting to open app with invite code: ${inviteCode}`;
+    const openApp = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
 
-    // Only try to redirect if on mobile
-    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-    if (/android/i.test(userAgent)) {
-      setTimeout(() => { window.location.href = androidStoreURL; }, 1500);
-    } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
-      // iOS redirect placeholder (you can uncomment iosStoreURL if you add it)
-      // setTimeout(() => { window.location.href = iosStoreURL; }, 1500);
-      document.getElementById('message').innerText += "\nOn iOS: would redirect to App Store";
-    } else {
-      document.getElementById('message').innerText += "\nNot on mobile: can't redirect to app";
-    }
+      if (/android/i.test(userAgent)) {
+        // Android intent scheme
+        const intentLink = `intent://groups/${inviteCode}#Intent;scheme=sportygo;package=${androidPackage};end`;
+        window.location.href = intentLink;
+      // } else if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
+      //   // iOS custom scheme
+      //   const iosLink = `sportygo://groups/${inviteCode}`;
+      //   window.location.href = iosLink;
+      } else {
+        alert("Please open this link on your mobile device with SportyGo installed.");
+      }
+    };
+
+    document.getElementById("openAppBtn").addEventListener("click", openApp);
   </script>
 </body>
+</html>
