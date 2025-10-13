@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Linking, Alert } from "react-native";
 import { YStack, Card, Button, Text, Paragraph, H3, Spinner } from "tamagui";
 import { getGroupInvite, addGroupMember, getGroupById } from "../../../firebase/services_firestore2";
+
 import { useAuth0 } from "react-native-auth0";
 import { GroupInviteDoc } from "../../../firebase/types_index";
 import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
