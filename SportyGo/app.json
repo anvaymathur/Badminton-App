@@ -78,7 +78,7 @@
     "experiments": {
       "typedRoutes": true
     },
-    "owner": "arav_mathur",
+    "owner": "sparkpro",
     "extra": {
       "router": {
         "origin": false

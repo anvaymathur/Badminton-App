@@ -767,11 +767,13 @@ export async function deleteMatchHistory(matchId: string) {
 }
 
 export async function createGroupInvite(groupInvite: GroupInviteDoc) {
-  const inviteRef = doc(collection(db, "groupInvites"));
+  // Use the inviteCode as the document ID for easy retrieval
+  const inviteRef = doc(db, "groupInvites", groupInvite.inviteCode);
   return setDoc(inviteRef, groupInvite);
 }
 
 export async function getGroupInvite(inviteCode: string): Promise<GroupInviteDoc | undefined> {
+  // Direct document read using inviteCode as document ID
   const snap = await getDoc(doc(db, "groupInvites", inviteCode));
   return snap.exists() ? (snap.data() as GroupInviteDoc) : undefined;
 }
