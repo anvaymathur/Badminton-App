@@ -48,16 +48,12 @@
         }
       ],
       [
-        "react-native-auth0",
-        {
-          "domain": "sportygo.ca.auth0.com",
-          "clientId": "TzevmHUuWdBTRK9jmAkswj4bBAUyvovB",
-          "packageName": "com.sparkpro.sportygo"
-        }
-      ],
-      [
         "expo-build-properties",
         {
+          "ios": {
+            "useFrameworks": "static",
+            "deploymentTarget": "15.1"
+          },
           "android": {
             "manifestPlaceholders": {
               "auth0Domain": "sportygo.ca.auth0.com",
@@ -69,11 +65,27 @@
         }
       ],
       [
+        "react-native-auth0",
+        {
+          "domain": "sportygo.ca.auth0.com",
+          "clientId": "TzevmHUuWdBTRK9jmAkswj4bBAUyvovB",
+          "packageName": "com.sparkpro.sportygo"
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "The app accesses your photos to let you share them with your friends."
         }
-      ]
+      ],
+      [
+        "rn-pendo-sdk",
+        {
+          "ios-scheme": "pendo-81693a93",
+          "android-scheme": "pendo-81693a93"
+        }
+      ],
+      "./plugins/use-modular-headers.js"
     ],
     "experiments": {
       "typedRoutes": true
