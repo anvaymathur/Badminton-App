@@ -387,13 +387,34 @@ export default function CreateGameSession() {
   };
 
   /**
-   * Filters users based on search query
+   * Filters users based on search query and selected group
+   * Only shows users from the selected group
    * 
    * @returns {UserDoc[]} Filtered array of users
    */
   const getFilteredUsers = (): UserDoc[] => {
-    if (!userSearchQuery.trim()) return users;
-    return users.filter(user => 
+    const effectiveGroupId = getEffectiveSelectedGroupId();
+    
+    // If no group is selected, return empty array
+    if (!effectiveGroupId) {
+      return [];
+    }
+    
+    // Get the selected group data
+    const selectedGroupData = groups.find(g => g.id === effectiveGroupId);
+    if (!selectedGroupData) {
+      return [];
+    }
+    
+    // Filter users to only include those in the selected group
+    const groupUsers = users.filter(user => 
+      selectedGroupData.MemberIds.includes(user.id)
+    );
+    
+    // Apply search filter if there's a search query
+    if (!userSearchQuery.trim()) return groupUsers;
+    
+    return groupUsers.filter(user => 
       user.Name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
       user.Email.toLowerCase().includes(userSearchQuery.toLowerCase())
     );
@@ -495,7 +516,6 @@ export default function CreateGameSession() {
 
         {!success ? (
           <ScrollView keyboardShouldPersistTaps="always" keyboardDismissMode="on-drag">
-
             <YStack px={16} pb={20}>
               <Card
                 backgroundColor="$color2"
@@ -707,98 +727,108 @@ export default function CreateGameSession() {
                     <Label style={{ fontSize: 16, fontWeight: '500' }} mb={4}>
                       Individual Participants 
                     </Label>
-                    <Input
-                      placeholder="Search users by name or email..."
-                      value={userSearchQuery}
-                      onChangeText={setUserSearchQuery}
-                      mb={8}
-                      bg="$color1"
-                      borderColor="$borderColor"
-                      blurOnSubmit={false}
-                    />
-                    <YStack space="$2" height={200}>
-                      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
-                        {/* Selected users at the top */}
-                        {getFilteredUsers()
-                          .filter(user => isUserHighlighted(user.id))
-                          .map((user) => (
-                            <Card
-                              key={user.id}
-                              onPress={() => toggleParticipant(user.id)}
-                              disabled={loadingUsers}
-                              p={8}
-                              bg="$color9"
-                              borderWidth={1}
-                              borderColor="$color9"
-                              borderRadius="$2"
-                              mb={2}
-                              
-                            >
-                              <Text
-                                fontSize={13}
-                                fontWeight="500"
-                                color="$color1"
-                              >
-                                {user.Name}
-                              </Text>
-                              <Text
-                                fontSize={11}
-                                color="$color1"
-                                mt={1}
-                              >
-                                {user.Email}
-                              </Text>
-                            </Card>
-                          ))}
-                        
-                        {/* Unselected users below */}
-                        {getFilteredUsers()
-                          .filter(user => !isUserHighlighted(user.id))
-                          .map((user) => (
-                            <Card
-                              key={user.id}
-                              onPress={() => toggleParticipant(user.id)}
-                              disabled={loadingUsers}
-                              p={8}
-                              bg="$color1"
-                              borderWidth={1}
-                              borderColor="$borderColor"
-                              borderRadius="$2"
-                              mb={2}
-                            >
-                              <Text
-                                fontSize={13}
-                                fontWeight="500"
-                                color="$color"
-                              >
-                                {user.Name}
-                              </Text>
-                              <Text
-                                fontSize={11}
-                                color="$color10"
-                                mt={1}
-                              >
-                                {user.Email}
-                              </Text>
-                            </Card>
-                          ))}
-                        
-                        {getFilteredUsers().length === 0 && !loadingUsers && (
-                          <Card p={16} bg="$color3" borderRadius="$2">
-                            <Text color="$color10" fontSize={14} style={{ textAlign: 'center' }}>
-                              {userSearchQuery ? 'No users found matching your search' : 'No users available'}
-                            </Text>
-                          </Card>
-                        )}
-                        {loadingUsers && (
-                          <Card p={16} bg="$color3" borderRadius="$2">
-                            <Text color="$color10" fontSize={14} style={{ textAlign: 'center' }}>
-                              Loading users...
-                            </Text>
-                          </Card>
-                        )}
-                      </ScrollView>
-                    </YStack>
+                    {!getEffectiveSelectedGroupId() ? (
+                      <Card p={16} bg="$color3" borderRadius="$2">
+                        <Text color="$color10" fontSize={14} style={{ textAlign: 'center' }}>
+                          Please select a group first to choose individual participants
+                        </Text>
+                      </Card>
+                    ) : (
+                      <>
+                        <Input
+                          placeholder="Search group members by name or email..."
+                          value={userSearchQuery}
+                          onChangeText={setUserSearchQuery}
+                          mb={8}
+                          bg="$color1"
+                          borderColor="$borderColor"
+                          blurOnSubmit={false}
+                        />
+                        <YStack space="$2" height={200}>
+                          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always">
+                            {/* Selected users at the top */}
+                            {getFilteredUsers()
+                              .filter(user => isUserHighlighted(user.id))
+                              .map((user) => (
+                                <Card
+                                  key={user.id}
+                                  onPress={() => toggleParticipant(user.id)}
+                                  disabled={loadingUsers}
+                                  p={8}
+                                  bg="$color9"
+                                  borderWidth={1}
+                                  borderColor="$color9"
+                                  borderRadius="$2"
+                                  mb={2}
+                                  
+                                >
+                                  <Text
+                                    fontSize={13}
+                                    fontWeight="500"
+                                    color="$color1"
+                                  >
+                                    {user.Name}
+                                  </Text>
+                                  <Text
+                                    fontSize={11}
+                                    color="$color1"
+                                    mt={1}
+                                  >
+                                    {user.Email}
+                                  </Text>
+                                </Card>
+                              ))}
+                            
+                            {/* Unselected users below */}
+                            {getFilteredUsers()
+                              .filter(user => !isUserHighlighted(user.id))
+                              .map((user) => (
+                                <Card
+                                  key={user.id}
+                                  onPress={() => toggleParticipant(user.id)}
+                                  disabled={loadingUsers}
+                                  p={8}
+                                  bg="$color1"
+                                  borderWidth={1}
+                                  borderColor="$borderColor"
+                                  borderRadius="$2"
+                                  mb={2}
+                                >
+                                  <Text
+                                    fontSize={13}
+                                    fontWeight="500"
+                                    color="$color"
+                                  >
+                                    {user.Name}
+                                  </Text>
+                                  <Text
+                                    fontSize={11}
+                                    color="$color10"
+                                    mt={1}
+                                  >
+                                    {user.Email}
+                                  </Text>
+                                </Card>
+                              ))}
+                            
+                            {getFilteredUsers().length === 0 && !loadingUsers && (
+                              <Card p={16} bg="$color3" borderRadius="$2">
+                                <Text color="$color10" fontSize={14} style={{ textAlign: 'center' }}>
+                                  {userSearchQuery ? 'No group members found matching your search' : 'No group members available'}
+                                </Text>
+                              </Card>
+                            )}
+                            {loadingUsers && (
+                              <Card p={16} bg="$color3" borderRadius="$2">
+                                <Text color="$color10" fontSize={14} style={{ textAlign: 'center' }}>
+                                  Loading group members...
+                                </Text>
+                              </Card>
+                            )}
+                          </ScrollView>
+                        </YStack>
+                      </>
+                    )}
                     <FieldError message={errors.participants} />
                   </YStack>
 

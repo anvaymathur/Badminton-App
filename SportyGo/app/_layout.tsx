@@ -6,13 +6,14 @@ import { TamaguiProvider, Theme } from "tamagui";
 import { UserProvider } from "./components/userContext";
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PortalProvider } from '@tamagui/portal';
+import constants from "./constants";
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <Auth0Provider
-        domain="sportygo.ca.auth0.com"
-        clientId="TzevmHUuWdBTRK9jmAkswj4bBAUyvovB">
+        domain={constants.Auth0Domain}
+        clientId={constants.Auth0ClientId}>
           <UserProvider>
             <TamaguiProvider config={config}>
               <PortalProvider shouldAddRootHost>
