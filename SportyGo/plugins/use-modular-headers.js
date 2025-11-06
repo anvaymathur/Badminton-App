@@ -14,7 +14,7 @@ module.exports = function withUseModularHeaders(config) {
         if (contents.includes('use_frameworks!')) {
           contents = contents.replace(
             /use_frameworks!.*\n/,
-            (match) => `${match}use_modular_headers!\n${match}`
+            (match) => `${match}use_modular_headers!\n`
           );
         } else {
           contents = `use_modular_headers!\n${contents}`;
