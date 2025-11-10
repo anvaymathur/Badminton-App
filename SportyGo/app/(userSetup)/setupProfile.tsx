@@ -1,4 +1,4 @@
-import { Alert, Platform} from "react-native";
+import { Alert, Platform, Keyboard, KeyboardAvoidingView, ScrollView, TouchableWithoutFeedback } from "react-native";
 import React, { useContext, useEffect, useState } from "react";
 import { Button, Input, YStack, XStack, Text, H2, View } from 'tamagui'
 import { router } from "expo-router";
@@ -42,6 +42,11 @@ export default function SetupProfile() {
     const [photoUrl, setPhotoUrl] = useState<string>('')
     const [dob, setDob] = useState('')
     const [showDobPicker, setShowDobPicker] = useState(false)
+
+    const handleDismissOverlays = () => {
+        Keyboard.dismiss()
+        setShowDobPicker(false)
+    }
 
     useEffect(() => {
         if (user && user.email){
@@ -110,173 +115,154 @@ export default function SetupProfile() {
             const month = String(selectedDate.getMonth() + 1).padStart(2, '0')
             const day = String(selectedDate.getDate()).padStart(2, '0')
             setDob(`${year}-${month}-${day}`)
-
-            // Immediate age check and warning
-            const age = calculateAgeFromDate(selectedDate)
-            if (age < 13) {
-                Alert.alert(
-                    "Age Restriction",
-                    "We cannot allow users under 13 on the app.",
-                    [{ text: "OK" }]
-                )
-            }
         }
     }
 
     return (
         <SafeAreaWrapper backgroundColor="$background">
-            <YStack flex={1} p="$4" space="$6" style={{ justifyContent: 'center', alignItems: 'center' }}>
-                {/* Title */}
-                {/* <Text 
-                    fontSize="$9" 
-                    fontWeight="bold" 
-                    color="$color9"
-                    mb="$4"
-                    style={{ textTransform: 'uppercase' }}
+            <TouchableWithoutFeedback onPress={handleDismissOverlays} accessible={false}>
+                <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : undefined}
                 >
-                    Create Profile
-                </Text> */}
-                <H2 color="$color9" fontWeight="bold"> Create Profile</H2>
-
-                {/* Profile Photo */}
-                <PhotoAvatar
-                    size="$12"
-                    photoUrl={photoUrl}
-                    name={name}
-                    onPhotoChange={setPhotoUrl}
-                    editable={true}
-                    borderColor="$color9"
-                    borderWidth={2}
-                    backgroundColor="$color9"
-                    textColor="$color1"
-                    fontSize="$6"
-                />
-
-                {/* Input Fields */}
-                <YStack space="$4" width="100%" style={{ maxWidth: 300 }}>
-                    <Input
-                        value={name}
-                        onChangeText={setName}
-                        placeholder="Name"
-                        borderColor="$color6"
-                        borderWidth={1}
-                        focusStyle={{
-                            borderWidth: 2,
-                            borderColor: '$color6'
+                    <ScrollView
+                        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 16, paddingVertical: 32 }}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                        onStartShouldSetResponderCapture={() => {
+                            if (showDobPicker) {
+                                setShowDobPicker(false)
+                            }
+                            return false
                         }}
-                        background="$color2"
-                        placeholderTextColor="$color10"
-                        color="$color"
-                        fontSize="$4"
-                        p="$3"
-                        style={{ borderRadius: 8 }}
-                    />
-                    
-                    <Input
-                        value={email}
-                        onChangeText={setEmail}
-                        placeholder="Email"
-                        borderColor="$color6"
-                        borderWidth={1}
-                        focusStyle={{
-                            borderWidth: 2,
-                            borderColor: '$color6'
-                        }}
-                        background="$color2"
-                        placeholderTextColor="$color10"
-                        color="$color"
-                        fontSize="$4"
-                        p="$3"
-                        style={{ borderRadius: 8 }}
-                    />
-                    
-                    {/* Date of Birth Picker */}
-                    <Button
-                        onPress={() => setShowDobPicker(true)}
-                        unstyled
-                        borderColor="$color6"
-                        borderWidth={1}
-                        bg="$color2"
-                        p="$3"
-                        style={{ borderRadius: 8 }}
                     >
-                        <Text color="$color" fontSize="$4">
-                            {dob ? dob : 'Date of Birth (YYYY-MM-DD)'}
-                        </Text>
-                    </Button>
-                    {showDobPicker && (
-                        <DateTimePicker
-                            value={/^\d{4}-\d{2}-\d{2}$/.test(dob) ? new Date(dob + 'T00:00:00') : new Date()}
-                            mode="date"
-                            display={Platform.OS === 'ios' ? 'spinner' : 'spinner'}
-                            textColor="black"
-                            maximumDate={new Date()}
-                            onChange={onChangeDob}
-                        />
-                    )}
-                    
-                    {/* <PhoneInput/> */}
-                    <Input
-                        keyboardType="numeric"
-                        inputMode="numeric"
-                        maxLength={10}
-                        value={phone}
-                        onChangeText={(text) => {
-                            const onlyDigits = text.replace(/\D/g, '')
-                            setPhone(onlyDigits)
-                        }}
-                        placeholder="Phone"
-                        borderColor="$color6"
-                        borderWidth={1}
-                        focusStyle={{
-                            borderWidth: 2,
-                            borderColor: '$color6'
-                        }}
-                        background="$color2"
-                        placeholderTextColor="$color10"
-                        color="$color"
-                        fontSize="$4"
-                        p="$3"
-                        style={{ borderRadius: 8 }}
-                    />
-                    
-                    {/* <Input
-                        value={address}
-                        onChangeText={setAddress}
-                        placeholder="Address"
-                        autoCapitalize="words"
-                        autoComplete="street-address"
-                        textContentType="fullStreetAddress"
-                        autoCorrect={false}
-                        returnKeyType="done"
-                        inputMode="text"
-                        clearButtonMode="while-editing"
-                        borderColor="$color6"
-                        borderWidth={1}
-                        focusStyle={{
-                            borderWidth: 2,
-                            borderColor: '$color6'
-                        }}
-                        background="$color2"
-                        placeholderTextColor="$color10"
-                        color="$color"
-                        fontSize="$4"
-                        p="$3"
-                        style={{ borderRadius: 8 }}
-                    /> */}
-                
-                </YStack>
-                {/* Create Profile Button */}
-                <Button
-                    fontSize="$7"  
-                    width="95%"
-                    bg="$color9"
-                    color="$color1"  
-                    onPress={createProfile}
-                >
-                    Create Profile
-                </Button>
-            </YStack>
+                        <YStack space="$6" verticalAlign="center" flex={1}>
+                            <YStack space="$5" style={{ alignItems: 'center', paddingTop: 8 }}>
+                                <H2 color="$color9" fontWeight="bold" mb="$8">
+                                    Create Profile
+                                </H2>
+                                <PhotoAvatar
+                                    size="$11"
+                                    photoUrl={photoUrl}
+                                    name={name}
+                                    onPhotoChange={setPhotoUrl}
+                                    editable={true}
+                                    borderColor="$color9"
+                                    borderWidth={0}
+                                    backgroundColor="$color9"
+                                    textColor="$color1"
+                                    fontSize="$6"
+                                    
+                                    
+                                />
+                            </YStack>
+
+                            <YStack space="$4" width="100%" style={{ maxWidth: 320, alignSelf: 'center' }}>
+                                <Input
+                                    value={name}
+                                    onChangeText={setName}
+                                    onFocus={() => setShowDobPicker(false)}
+                                    placeholder="Name"
+                                    borderColor="$color6"
+                                    borderWidth={1}
+                                    focusStyle={{
+                                        borderWidth: 2,
+                                        borderColor: '$color6'
+                                    }}
+                                    background="$color2"
+                                    placeholderTextColor="$color10"
+                                    color="$color"
+                                    fontSize="$4"
+                                    p="$3"
+                                    style={{ borderRadius: 8 }}
+                                />
+                                
+                                <Input
+                                    value={email}
+                                    onChangeText={setEmail}
+                                    onFocus={() => setShowDobPicker(false)}
+                                    placeholder="Email"
+                                    borderColor="$color6"
+                                    borderWidth={1}
+                                    focusStyle={{
+                                        borderWidth: 2,
+                                        borderColor: '$color6'
+                                    }}
+                                    background="$color2"
+                                    placeholderTextColor="$color10"
+                                    color="$color"
+                                    fontSize="$4"
+                                    p="$3"
+                                    style={{ borderRadius: 8 }}
+                                />
+                                
+                                <Button
+                    onPress={() => {
+                        Keyboard.dismiss()
+                        setShowDobPicker((prev) => !prev)
+                    }}
+                                    unstyled
+                                    borderColor="$color6"
+                                    borderWidth={1}
+                                    bg="$color2"
+                                    p="$3"
+                                    style={{ borderRadius: 8 }}
+                                >
+                                    <Text color="$color" fontSize="$4">
+                                        {dob ? dob : 'Date of Birth (YYYY-MM-DD)'}
+                                    </Text>
+                                </Button>
+                                {showDobPicker && (
+                                    <DateTimePicker
+                                        value={/^\d{4}-\d{2}-\d{2}$/.test(dob) ? new Date(dob + 'T00:00:00') : new Date()}
+                                        mode="date"
+                                        display={Platform.OS === 'ios' ? 'spinner' : 'spinner'}
+                                        textColor="black"
+                                        maximumDate={new Date()}
+                                        onChange={onChangeDob}
+                                    />
+                                )}
+                                
+                                <Input
+                                    keyboardType="numeric"
+                                    inputMode="numeric"
+                                    maxLength={10}
+                                    value={phone}
+                                    onChangeText={(text) => {
+                                        const onlyDigits = text.replace(/\D/g, '')
+                                        setPhone(onlyDigits)
+                                    }}
+                                    onFocus={() => setShowDobPicker(false)}
+                                    placeholder="Phone"
+                                    borderColor="$color6"
+                                    borderWidth={1}
+                                    focusStyle={{
+                                        borderWidth: 2,
+                                        borderColor: '$color6'
+                                    }}
+                                    background="$color2"
+                                    placeholderTextColor="$color10"
+                                    color="$color"
+                                    fontSize="$4"
+                                    p="$3"
+                                    style={{ borderRadius: 8 }}
+                                />
+                            </YStack>
+
+                            <Button
+                                fontSize="$7"
+                                width="95%"
+                                bg="$color9"
+                                color="$color1"
+                                onPress={createProfile}
+                            >
+                                Create Profile
+                            </Button>
+                        </YStack>
+                    </ScrollView>
+                </KeyboardAvoidingView>
+            </TouchableWithoutFeedback>
         </SafeAreaWrapper>
     )
 }
