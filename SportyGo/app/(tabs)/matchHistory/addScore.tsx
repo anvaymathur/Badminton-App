@@ -1,3 +1,5 @@
+// Multi-step wizard for logging a new match result.
+// Handles player selection, score entry, match metadata, validation, and persists data to Firestore.
 import React, { useContext, useEffect, useState } from "react";
 import {
   ScrollView,
@@ -14,7 +16,8 @@ import {
   H5,
   Paragraph,
   Circle,
-  Separator
+  Separator,
+  Dialog
 } from "tamagui";
 import { Adapt } from '@tamagui/adapt'
 import { Ionicons } from "@expo/vector-icons";
@@ -22,7 +25,7 @@ import { useRouter } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
 import { getAllUserProfiles, createMatchHistory} from '../../../firebase/services_firestore2';
 import { newMatchHistory } from "@/firebase/types_index";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { UserContext } from '../../components/userContext';
 import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
@@ -30,59 +33,200 @@ import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
 
 export default function AddScore() {
   const router = useRouter();
+  // Score inputs for the user's team and their opponents.
   const [yourScore, setYourScore] = useState("0");
   const [opponentScore, setOpponentScore] = useState("0");
+  // Match context captured throughout the wizard flow.
   const [matchType, setMatchType] = useState("singles");
   const [date, setDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [tournament, setTournament] = useState("");
-  const [yourPlayer1, setYourPlayer1] = useState("");
+  const [userName, setUserName] = useState("");
+  const [userID, setUserID] = useState("");
   const [yourPlayer2, setYourPlayer2] = useState("");
   const [opponentPlayer1, setOpponentPlayer1] = useState("");
   const [opponentPlayer2, setOpponentPlayer2] = useState("");
+  const [currentStep, setCurrentStep] = useState(0);
+  const [draftDate, setDraftDate] = useState<Date>(new Date(date));
 
 
   const {user} = useAuth0()
   const {globalUser} = useContext(UserContext)
 
-  let userName: string = ""
-  let userID: string = ""
-  if (globalUser && user && globalUser.name && user.sub){
-    userName = globalUser.name
-    userID = user.sub
-  }
+  // Player directory pulled from Firestore so the wizard can present selection menus.
   const [players, setPlayers] = useState<string[]>([]);
   const [playerNameToId, setPlayerNameToId] = useState<{ [name: string]: string }>({});
+  const totalSteps = 3;
+  const stepTitles = ["Select Players", "Game Score", "Match Setup"];
+  const stepDescriptions = [
+    "Choose everyone who played in the match.",
+    "Record the final score using the selected players.",
+    "Confirm when and where the match happened."
+  ];
+  const goToPreviousStep = () => setCurrentStep((prev) => Math.max(prev - 1, 0));
+  // Guard each step to ensure the user fills required fields before progressing.
+  const validateStep = (stepIndex: number) => {
+    if (stepIndex === 0) {
+      // Step 1: enforce valid player selections with no duplicates and required opponents.
+      const selectedPlayers = [userName, opponentPlayer1, yourPlayer2, opponentPlayer2]
+        .map((p) => (p ? p.trim() : ""))
+        .filter((p) => p !== "");
+      const hasDuplicatePlayers = new Set(selectedPlayers).size !== selectedPlayers.length;
+
+      if (!opponentPlayer1 || opponentPlayer1.trim() === "") {
+        Alert.alert("Missing players", "Select at least one opponent to continue.");
+        return false;
+      }
+
+      if (matchType === "doubles") {
+        if (!yourPlayer2 || yourPlayer2.trim() === "" || !opponentPlayer2 || opponentPlayer2.trim() === "") {
+          Alert.alert(
+            "Missing teammates",
+            "Doubles matches need both teammates selected before continuing."
+          );
+          return false;
+        }
+      }
+
+      if (hasDuplicatePlayers) {
+        Alert.alert("Duplicate selection", "A player cannot be selected more than once.");
+        return false;
+      }
+
+      return true;
+    }
+
+    if (stepIndex === 1) {
+      // Step 2: ensure scores are present and non-zero before saving.
+      const yourScoreValue = parseInt(yourScore, 10);
+      const opponentScoreValue = parseInt(opponentScore, 10);
+
+      if (isNaN(yourScoreValue) && isNaN(opponentScoreValue)) {
+        Alert.alert("Missing score", "Please enter a score for at least one team before continuing.");
+        return false;
+      }
+
+      if (yourScoreValue === 0 && opponentScoreValue === 0) {
+        Alert.alert("Incomplete score", "Scores must be greater than zero for at least one team.");
+        return false;
+      }
+
+      return true;
+    }
+
+    if (stepIndex === 2) {
+      // Step 3: confirm a match date has been chosen.
+      if (!date) {
+        Alert.alert("Missing date", "Please select a match date before continuing.");
+        return false;
+      }
+      return true;
+    }
+
+    return true;
+  };
 
   // Filter option lists so a chosen player cannot be selected again elsewhere
   const availableYourPlayer2 = players.filter((name) => name !== userName && name !== opponentPlayer1 && name !== opponentPlayer2);
   const availableOpponentPlayer1 = players.filter((name) => name !== userName && name !== yourPlayer2 && name !== opponentPlayer2);
   const availableOpponentPlayer2 = players.filter((name) => name !== userName && name !== yourPlayer2 && name !== opponentPlayer1);
+  const getFirstName = (fullName: string) =>
+    fullName && fullName.trim() !== "" ? fullName.trim().split(" ")[0] : "";
+  const buildTeamLabel = (team: string[], fallback: string) => {
+    const names = team.filter((name) => name && name.trim() !== "").map(getFirstName);
+    if (names.length === 0) return fallback;
+    if (names.length === 1) return names[0];
+    return names.join(" & ");
+  };
+  const yourTeamLabel = buildTeamLabel(
+    matchType === "doubles" ? [userName, yourPlayer2] : [userName],
+    "Your Team"
+  );
+  const opponentTeamLabel = buildTeamLabel(
+    matchType === "doubles" ? [opponentPlayer1, opponentPlayer2] : [opponentPlayer1],
+    "Opponent Team"
+  );
 
   // Track focus to allow empty string while editing
   const [isYourScoreFocused, setIsYourScoreFocused] = useState(false);
   const [isOpponentScoreFocused, setIsOpponentScoreFocused] = useState(false);
 
   useEffect(() => {
+    // Prefill the logged-in user's name/id so the wizard can auto-select them.
+    if (user?.sub) {
+      setUserID(user.sub);
+    }
+
+    const sanitizeName = (raw?: string | null) => {
+      if (!raw) return "";
+      const trimmed = raw.trim();
+      if (!trimmed || trimmed.includes("|")) return "";
+      return trimmed;
+    };
+
+    const resolvedName =
+      sanitizeName(globalUser?.name) ||
+      sanitizeName(user?.givenName as string | undefined) ||
+      sanitizeName(user?.nickname) ||
+      sanitizeName(typeof user?.name === "string" ? user.name : "") ||
+      "";
+
+    setUserName((prev) => {
+      if (prev === resolvedName) return prev;
+      return resolvedName;
+    });
+  }, [globalUser, user]);
+
+  useEffect(() => {
     const fetchPlayers = async () => {
+      // Pull the full roster so the user can pick teammates/opponents.
       const fetchedPlayers = await getAllUserProfiles();
-      const uniqueNames = [...new Set(fetchedPlayers.map(player => player.Name).filter(name => name !== ""))];
+      let nameFromProfiles = "";
+      const uniqueNames = [
+        ...new Set(
+          fetchedPlayers
+            .map((player) => player.Name?.trim() ?? "")
+            .filter((name): name is string => name.length > 0)
+        ),
+      ];
       
       // Create name-to-id mapping
       const nameToIdMap: { [name: string]: string } = {};
       fetchedPlayers.forEach(player => {
-        if (player.Name && player.Name !== "") {
-          nameToIdMap[player.Name] = player.id;
+        const trimmedName = player.Name?.trim();
+        if (trimmedName && trimmedName.length > 0) {
+          nameToIdMap[trimmedName] = player.id;
+          if (!nameFromProfiles && user?.sub && player.id === user.sub) {
+            nameFromProfiles = trimmedName;
+          }
         }
       });
       
       setPlayers(uniqueNames);
       setPlayerNameToId(nameToIdMap);
-    };
-    fetchPlayers();
-  }, []);
+      if (nameFromProfiles) {
+        setUserName((prev) => {
+          const sanitizedPrev = prev?.trim() ?? "";
+          if (sanitizedPrev && !sanitizedPrev.includes("|")) {
+            return sanitizedPrev;
+          }
 
+          return nameFromProfiles;
+        });
+      }
+    };
+
+    fetchPlayers();
+  }, [user?.sub]);
+
+  useEffect(() => {
+    if (showDatePicker || showTimePicker) {
+      setDraftDate(date);
+    }
+  }, [showDatePicker, showTimePicker, date]);
+
+  // Utility controls for the score adjustment buttons beneath the inputs.
   const resetGame = () => {
     setYourScore("0");
     setOpponentScore("0");
@@ -110,26 +254,36 @@ export default function AddScore() {
     }
   };
 
-  const onDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(false);
-    if (selectedDate) {
-      setDate(selectedDate);
-    }
+  // Draft date/time updates mirror the native picker selections before the user hits Done.
+  const onDraftDateChange = (_event: any, selectedDate?: Date) => {
+
   };
 
-  const onTimeChange = (event: any, selectedTime?: Date) => {
-    setShowTimePicker(false);
+  const onDraftTimeChange = (_event: any, selectedTime?: Date) => {
     if (selectedTime) {
-      const newDate = new Date(date);
-      newDate.setHours(selectedTime.getHours(), selectedTime.getMinutes());
-      setDate(newDate);
+      const updatedDate = new Date(draftDate);
+      updatedDate.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+      setDraftDate(updatedDate);
     }
   };
 
+  const confirmDateSelection = () => {
+    setDate(draftDate);
+    setShowDatePicker(false);
+  };
+
+  const confirmTimeSelection = () => {
+    setDate(draftDate);
+    setShowTimePicker(false);
+  };
+
+  // Final save handler – validates the entire wizard and persists the match to Firestore.
   const handleSaveMatch = async () => {
 
     // Prevent saving with duplicate player selections
-    const selectedPlayers = [userName, yourPlayer2, opponentPlayer1, opponentPlayer2].filter((p) => p && p !== "");
+    const selectedPlayers = [userName, yourPlayer2, opponentPlayer1, opponentPlayer2]
+      .map((p) => (p ? p.trim() : ""))
+      .filter((p) => p !== "");
     const hasDuplicatePlayers = new Set(selectedPlayers).size !== selectedPlayers.length;
     if (hasDuplicatePlayers) {
       Alert.alert(
@@ -140,7 +294,21 @@ export default function AddScore() {
       return;
     }
 
-    if (opponentPlayer1 !== "" && date !== null && yourScore !== "0"  && opponentScore !== "0" &&  ((matchType === 'doubles' && opponentPlayer2 !== '' && yourPlayer2 !== '') || matchType === 'singles')){
+    const sanitizedOpponent1 = opponentPlayer1?.trim() ?? "";
+    const sanitizedOpponent2 = opponentPlayer2?.trim() ?? "";
+    const sanitizedYourPlayer2 = yourPlayer2?.trim() ?? "";
+    const parsedYourScore = parseInt(yourScore, 10);
+    const parsedOpponentScore = parseInt(opponentScore, 10);
+    const hasValidScore =
+      (!Number.isNaN(parsedYourScore) && parsedYourScore > 0) ||
+      (!Number.isNaN(parsedOpponentScore) && parsedOpponentScore > 0);
+
+    if (
+      sanitizedOpponent1 &&
+      date !== null &&
+      hasValidScore &&
+      ((matchType === "doubles" && sanitizedOpponent2 && sanitizedYourPlayer2) || matchType === "singles")
+    ){
       
         // Get player IDs, fallback to names if ID not found
         const team1Player1Id = playerNameToId[userName] || userID;
@@ -162,6 +330,17 @@ export default function AddScore() {
         "Please fill all the required information.",
         [{ text: "OK" }]
       )
+    }
+  };
+
+  const handlePrimaryAction = () => {
+    if (currentStep === totalSteps - 1) {
+      handleSaveMatch();
+      return;
+    }
+
+    if (validateStep(currentStep)) {
+      setCurrentStep((prev) => Math.min(prev + 1, totalSteps - 1));
     }
   };
 
@@ -190,268 +369,369 @@ export default function AddScore() {
         </XStack>
 
         <ScrollView flex={1} p="$4" showsVerticalScrollIndicator={false}>
-          <YStack pb="$8" space="$4">
-            {/* Game Score Section */}
+          <YStack pb="$12" space="$4">
             <Card padding="$4" backgroundColor="$background" borderWidth={1} borderColor="$borderColor">
-              <YStack space="$3">
-                <H5 color="$color9" ml="$11" >Game Score</H5>
-                
-                <YStack space="$2">
-                  {/* Your Team Row */}
-                  <XStack verticalAlign="center" justify="center" space="$2">
-                    <Circle
-                      size="$3"
-                      bg="$color9"
-                      onPress={() => decrementScore("your")}
+              <YStack space="$1">
+                <Paragraph fontSize="$2" color="$color10">
+                  Step {currentStep + 1} of {totalSteps}
+                </Paragraph>
+                <H5 color="$color9">{stepTitles[currentStep]}</H5>
+                <Paragraph color="$color10">
+                  {stepDescriptions[currentStep]}
+                </Paragraph>
+              </YStack>
+            </Card>
+
+            {currentStep === 1 && (
+              <Card
+                padding="$5"
+                backgroundColor="$background"
+                borderWidth={1}
+                borderColor="$borderColor"
+                borderRadius="$4"
+              >
+                <YStack space="$5" verticalAlign="stretch">
+                  <YStack verticalAlign="center" space="$2">
+                    <H5 color="$color9">Game Score</H5>
+                    <Paragraph color="$color10" style={{ textAlign: "center" }}>
+                      Enter the final numbers for each team.
+                    </Paragraph>
+                  </YStack>
+
+                  <Card
+                    padding="$4"
+                    backgroundColor="$color3"
+                    borderRadius="$4"
+                    borderColor="$borderColor"
+                  >
+                    <YStack space="$4">
+                      <XStack
+                        verticalAlign="center"
+                        justify="center"
+                        space="$4"
+                        flexWrap="wrap"
+                      >
+                        <Card
+                          padding="$2"
+                          backgroundColor="$background"
+                          borderRadius="$4"
+                          minWidth={88}
+                          alignItems="center"
+                        >
+                          <Input
+                            verticalAlign="center"
+                            p="$2"
+                            bg="transparent"
+                            borderColor="transparent"
+                            inputMode="numeric"
+                            keyboardType="numeric"
+                            maxLength={2}
+                            fontSize="$6"
+                            fontWeight="700"
+                            value={yourScore.toString()}
+                            onFocus={() => {
+                              setIsYourScoreFocused(true);
+                              if (yourScore === "0") setYourScore("");
+                            }}
+                            onBlur={() => {
+                              setIsYourScoreFocused(false);
+                              if (yourScore === "") setYourScore("0");
+                            }}
+                            onChangeText={(text) => {
+                              const onlyDigits = text.replace(/[^0-9]/g, "");
+                              if (onlyDigits === "") {
+                                if (isYourScoreFocused) {
+                                  setYourScore("");
+                                } else {
+                                  setYourScore("0");
+                                }
+                                return;
+                              }
+                              const parsed = parseInt(onlyDigits, 10);
+                              setYourScore(isNaN(parsed) ? "0" : parsed.toString());
+                            }}
+                          />
+                        </Card>
+
+                        <Card
+                          padding="$2"
+                          backgroundColor="$background"
+                          borderRadius="$3"
+                          borderColor="$borderColor"
+                          minWidth={64}
+                          height={64}
+                          alignItems="center"
+                          justifyContent="center"
+                        >
+                          <Text fontWeight="700" fontSize="$4" color="$color9">
+                            VS
+                          </Text>
+                        </Card>
+
+                        <Card
+                          padding="$2"
+                          backgroundColor="$background"
+                          borderRadius="$4"
+                          minWidth={88}
+                          alignItems="center"
+                        >
+                          <Input
+                            verticalAlign="center"
+                            p="$2"
+                            bg="transparent"
+                            borderColor="transparent"
+                            inputMode="numeric"
+                            keyboardType="numeric"
+                            maxLength={2}
+                            fontSize="$6"
+                            fontWeight="700"
+                            value={opponentScore.toString()}
+                            onFocus={() => {
+                              setIsOpponentScoreFocused(true);
+                              if (opponentScore === "0") setOpponentScore("");
+                            }}
+                            onBlur={() => {
+                              setIsOpponentScoreFocused(false);
+                              if (opponentScore === "") setOpponentScore("0");
+                            }}
+                            onChangeText={(text) => {
+                              const onlyDigits = text.replace(/[^0-9]/g, "");
+                              if (onlyDigits === "") {
+                                if (isOpponentScoreFocused) {
+                                  setOpponentScore("");
+                                } else {
+                                  setOpponentScore("0");
+                                }
+                                return;
+                              }
+                              const parsed = parseInt(onlyDigits, 10);
+                              setOpponentScore(isNaN(parsed) ? "0" : parsed.toString());
+                            }}
+                          />
+                        </Card>
+                      </XStack>
+
+                      <XStack
+                        verticalAlign="center"
+                        justify="space-between"
+                        space="$6"
+                        flexWrap="wrap"
+                      >
+                        <XStack verticalAlign="center" space="$3">
+                          <Circle
+                            size="$4"
+                            bg="$color9"
+                            onPress={() => decrementScore("your")}
+                          >
+                            <Ionicons name="remove" size={18} color="white" />
+                          </Circle>
+                          <Circle
+                            size="$4"
+                            bg="$color9"
+                            onPress={() => incrementScore("your")}
+                          >
+                            <Ionicons name="add" size={18} color="white" />
+                          </Circle>
+                        </XStack>
+
+                        <XStack verticalAlign="center" space="$3">
+                          <Circle
+                            size="$4"
+                            bg="$color9"
+                            onPress={() => decrementScore("opponent")}
+                          >
+                            <Ionicons name="remove" size={18} color="white" />
+                          </Circle>
+                          <Circle
+                            size="$4"
+                            bg="$color9"
+                            onPress={() => incrementScore("opponent")}
+                          >
+                            <Ionicons name="add" size={18} color="white" />
+                          </Circle>
+                        </XStack>
+                      </XStack>
+
+                      <XStack justify="space-between" flexWrap="wrap">
+                        <Text fontSize="$3" fontWeight="600">
+                          {yourTeamLabel}
+                        </Text>
+                        <Text fontSize="$3" fontWeight="600">
+                          {opponentTeamLabel}
+                        </Text>
+                      </XStack>
+                    </YStack>
+                  </Card>
+
+                  <Paragraph color="$color10" style={{ textAlign: "center" }}>
+                    Use the plus and minus icons or tap the score to type it in.
+                  </Paragraph>
+                </YStack>
+              </Card>
+            )}
+
+            {currentStep === 2 && (
+              <Card padding="$5" backgroundColor="$background" borderWidth={1} borderColor="$borderColor">
+                <YStack space="$4">
+                  <H5 color="$color9">Match Setup</H5>
+
+                  {/* Date & time selectors open modal pickers when tapped */}
+                  <YStack space="$2">
+                    <Text fontSize="$3" fontWeight="500">
+                      Date
+                    </Text>
+                    <Button
+                      bg="$color3"
+                      borderColor="$borderColor"
+                      onPress={() => {
+                        setShowTimePicker(false);
+                        setDraftDate(date);
+                        setShowDatePicker(true);
+                      }}
                     >
-                      <Ionicons name="remove" size={16} color="white" />
-                    </Circle>
-                    <Card
-                      padding="$1"
-                      backgroundColor="$color4"
-                      borderRadius="$2"
-                      minWidth={48}
-                      alignItems="center"
+                      <Text>{date.toDateString()}</Text>
+                    </Button>
+
+                    <Text fontSize="$3" fontWeight="500">
+                      Time
+                    </Text>
+                    <Button
+                      bg="$color3"
+                      borderColor="$borderColor"
+                      onPress={() => {
+                        setShowDatePicker(false);
+                        setDraftDate(date);
+                        setShowTimePicker(true);
+                      }}
                     >
-                      <Input
-                        p="$1"
-                        bg="$color4"
-                        borderColor="transparent"
-                        inputMode="numeric"
-                        keyboardType="numeric"
-                        maxLength={2}
-                        fontSize='$5'
-                        value={yourScore.toString()}
-                        onFocus={() => {
-                          setIsYourScoreFocused(true);
-                          if (yourScore === "0") setYourScore("");
+                      <Text>
+                        {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </Text>
+                    </Button>
+                  </YStack>
+
+                  {/* Optional tournament metadata */}
+                  <YStack space="$2">
+                    <Text fontSize="$3" fontWeight="500">
+                      Tournament/Event (Optional)
+                    </Text>
+                    <Input
+                      value={tournament}
+                      onChangeText={setTournament}
+                      placeholder="Enter tournament name"
+                    />
+                  </YStack>
+                </YStack>
+              </Card>
+            )}
+
+            {currentStep === 0 && (
+              <Card padding="$5" backgroundColor="$background" borderWidth={1} borderColor="$borderColor">
+                <YStack space="$4">
+                  <H5 color="$color9">Select Players</H5>
+
+                  {/* Toggle between singles and doubles presets */}
+                  <YStack space="$2">
+                    <Text fontSize="$3" fontWeight="500">
+                      Match Type
+                    </Text>
+                    <XStack space="$2">
+                      <Button
+                        flex={1}
+                        bg={matchType === "singles" ? "$color9" : "$color3"}
+                        onPress={() => {
+                          setMatchType("singles");
+                          setYourPlayer2("");
+                          setOpponentPlayer2("");
                         }}
-                        onBlur={() => {
-                          setIsYourScoreFocused(false);
-                          if (yourScore === "") setYourScore("0");
-                        }}
-                        onChangeText={(text) => {
-                          const onlyDigits = text.replace(/[^0-9]/g, '');
-                          if (onlyDigits === '') {
-                            if (isYourScoreFocused) {
-                              setYourScore('');
-                            } else {
-                              setYourScore('0');
-                            }
-                            return;
-                          }
-                          const parsed = parseInt(onlyDigits, 10)
-                          setYourScore(isNaN(parsed) ? "0" : parsed.toString())
-                        }}
-                      />
-                    </Card>
-                    <Circle
-                      size="$3"
-                      bg="$color9"
-                      onPress={() => incrementScore("your")}
-                    >
-                      <Ionicons name="add" size={16} color="white" />
-                    </Circle>
-                  </XStack>
-                  <XStack justify="center">
-                    <Text fontSize="$2" color="$color" mt="$1">
+                        color={matchType === "singles" ? "$color1" : "$color9"}
+                      >
+                        Singles
+                      </Button>
+                      <Button
+                        flex={1}
+                        bg={matchType === "doubles" ? "$color9" : "$color3"}
+                        onPress={() => setMatchType("doubles")}
+                        color={matchType === "doubles" ? "$color1" : "$color9"}
+                      >
+                        Doubles
+                      </Button>
+                    </XStack>
+                  </YStack>
+
+                  {/* User team selectors */}
+                  <YStack space="$3">
+                    <Text fontSize="$3" fontWeight="500">
                       Your Team
                     </Text>
-                  </XStack>
+                    <Select value={userName}>
+                      <Select.Trigger
+                        backgroundColor="$color4"
+                        borderColor="$borderColor"
+                        width="100%"
+                      >
+                        <Select.Value>{userName || "Select Player 1"}</Select.Value>
+                      </Select.Trigger>
+                    </Select>
 
-                  {/* VS Row */}
-                  <XStack justify="center">
-                    <Card
-                  
-                      padding="$1"
-                      backgroundColor="$color4"
-                      borderRadius="$2"
-                      minWidth={32}
-                      height={32}
-                      alignItems="center"
-                      justify="center"
-                    >
-                      <Text fontWeight="bold" color="$color">VS</Text>
-                    </Card>
-                  </XStack>
+                    {matchType === "doubles" && (
+                      <Select
+                        value={yourPlayer2}
+                        onValueChange={(value) => {
+                          setYourPlayer2(value);
+                          if (value === opponentPlayer1) setOpponentPlayer1("");
+                          if (value === opponentPlayer2) setOpponentPlayer2("");
+                        }}
+                      >
+                        <Select.Trigger
+                          backgroundColor="$color4"
+                          borderColor="$borderColor"
+                          width="100%"
+                        >
+                          <Select.Value placeholder="Select Player 2" />
+                        </Select.Trigger>
 
-                  {/* Opponent Team Row */}
-                  <XStack verticalAlign="center" justify="center" space="$2">
-                    <Circle
-                      size="$3"
-                      bg="$color9"
-                      onPress={() => decrementScore("opponent")}
-                    >
-                      <Ionicons name="remove" size={16} color="white" />
-                    </Circle>
-                    <Card
-                      padding="$1"
-                      backgroundColor="$color4"
-                      borderRadius="$2"
-                      minWidth={48}
-                      alignItems="center"
-                    >
-                      <Input
-                        p="$1"
-                        bg="$color4"
-                        borderColor="transparent"
-                        inputMode="numeric"
-                        keyboardType="numeric"
-                        maxLength={2}
-                        fontSize='$5'
-                        value={opponentScore.toString()}
-                        onFocus={() => {
-                          setIsOpponentScoreFocused(true);
-                          if (opponentScore === "0") setOpponentScore("");
-                        }}
-                        onBlur={() => {
-                          setIsOpponentScoreFocused(false);
-                          if (opponentScore === "") setOpponentScore("0");
-                        }}
-                        onChangeText={(text) => {
-                          const onlyDigits = text.replace(/[^0-9]/g, '');
-                          if (onlyDigits === '') {
-                            if (isOpponentScoreFocused) {
-                              setOpponentScore('');
-                            } else {
-                              setOpponentScore('0');
-                            }
-                            return;
-                          }
-                          const parsed = parseInt(onlyDigits, 10)
-                          setOpponentScore(isNaN(parsed) ? "0" : parsed.toString())
-                        }}
-                      />
-                    </Card>
-                    <Circle
-                      size="$3"
-                      bg="$color9"
-                      onPress={() => incrementScore("opponent")}
-                    >
-                      <Ionicons name="add" size={16} color="white" />
-                    </Circle>
-                  </XStack>
-                  <XStack justify="center">
-                    <Text fontSize="$2" color="$color" mt="$1">
+                        <Adapt when={true} platform="touch">
+                          <Sheet modal dismissOnSnapToBottom position={0}>
+                            <Sheet.Frame height={400}>
+                              <Adapt.Contents />
+                            </Sheet.Frame>
+                            <Sheet.Overlay />
+                          </Sheet>
+                        </Adapt>
+
+                        <Select.Content zIndex={200000}>
+                          <Select.ScrollUpButton />
+                          <Select.Viewport minH={100} maxH={300}>
+                            <Select.Group>
+                              <Select.Label>Players</Select.Label>
+                              {availableYourPlayer2.map((playerName, index) => (
+                                <Select.Item
+                                  key={`${playerName || "player"}-${index}`}
+                                  value={playerName}
+                                  index={index}
+                                >
+                                  <Select.ItemText>{playerName}</Select.ItemText>
+                                </Select.Item>
+                              ))}
+                            </Select.Group>
+                          </Select.Viewport>
+                          <Select.ScrollDownButton />
+                        </Select.Content>
+                      </Select>
+                    )}
+                  </YStack>
+
+                  {/* Opponent team selectors */}
+                  <YStack space="$3">
+                    <Text fontSize="$3" fontWeight="500">
                       Opponent Team
                     </Text>
-                  </XStack>
-                </YStack>
-
-                <Button
-                  bg="$color9"
-                  onPress={resetGame}
-                  mt="$2"
-                  color="$color1"
-                >
-                  Reset Game
-                </Button>
-              </YStack>
-            </Card>
-
-            {/* Match Setup Section */}
-            <Card padding="$4" backgroundColor="$background" borderWidth={1} borderColor="$borderColor">
-              <YStack space="$3">
-                <H5 color="$color9">Match Setup</H5>
-                
-                {/* Match Type */}
-                <YStack space="$2">
-                  <Text fontSize="$3" fontWeight="500">Match Type</Text>
-                  <XStack space="$2">
-                    <Button
-                      flex={1}
-                      bg={matchType === "singles" ? "$color9" : "$color3"}
-                      onPress={() => setMatchType("singles")}
-                      color={matchType === "singles" ? "$color1" : "$color9"}
-                    >
-                      Singles
-                    </Button>
-                    <Button
-                      flex={1}
-                      bg={matchType === "doubles" ? "$color9" : "$color3"}
-                      onPress={() => setMatchType("doubles")}
-                      color={matchType === "doubles" ? "$color1" : "$color9"}
-                    >
-                      Doubles
-                    </Button>
-                  </XStack>
-                </YStack>
-
-                {/* Date */}
-                <YStack space="$2">
-                  <Text fontSize="$3" fontWeight="500">Date</Text>
-                  <Button
-                    bg="$color3"
-                    borderColor="$borderColor"
-                    onPress={() => setShowDatePicker(true)}
-                  >
-                    <Text>{date.toDateString()}</Text>
-                  </Button>
-                  {showDatePicker && (
-                    <DateTimePicker
-                      value={date}
-                      mode="date"
-                      display="default"
-                      onChange={onDateChange}
-                    />
-                  )}
-
-                  <Text fontSize="$3" fontWeight="500">Time</Text>
-                  <Button
-                    bg="$color3"
-                    borderColor="$borderColor"
-                    onPress={() => setShowTimePicker(true)}
-                  >
-                    <Text>{date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                  </Button>
-                  {showTimePicker && (
-                    <DateTimePicker
-                      value={date}
-                      mode="time"
-                      display="default"
-                      onChange={onTimeChange}
-                    />
-                  )}
-                </YStack>
-
-                {/* Tournament/Event */}
-                <YStack space="$2">
-                  <Text fontSize="$3" fontWeight="500">Tournament/Event (Optional)</Text>
-                  <Input
-                    value={tournament}
-                    onChangeText={setTournament}
-                    placeholder="Enter tournament name"
-                  />
-                </YStack>
-              </YStack>
-            </Card>
-
-            {/* Select Players Section */}
-            <Card padding="$4" backgroundColor="$background" borderWidth={1} borderColor="$borderColor">
-              <YStack space="$3">
-                <H5 color="$color9">Select Players</H5>
-                
-                {/* Your Team */}
-                <YStack space="$2">
-                  <Text fontSize="$3" fontWeight="500">Your Team</Text>
-                  <Select
-                    value={userName}
-                  >
-                    <Select.Trigger
-                      backgroundColor="$color4"
-                      borderColor="$borderColor"
-                      width="100%"
-                    >
-                      <Select.Value>{userName || "Select Player 1"}</Select.Value>
-                    </Select.Trigger>
-                  </Select>
-
-                  {matchType === "doubles" && (
                     <Select
-                      value={yourPlayer2}
+                      value={opponentPlayer1}
                       onValueChange={(value) => {
-                        setYourPlayer2(value);
-                        if (value === opponentPlayer1) setOpponentPlayer1("");
+                        setOpponentPlayer1(value);
+                        if (value === yourPlayer2) setYourPlayer2("");
                         if (value === opponentPlayer2) setOpponentPlayer2("");
                       }}
                     >
@@ -460,16 +740,11 @@ export default function AddScore() {
                         borderColor="$borderColor"
                         width="100%"
                       >
-                        <Select.Value placeholder="Select Player 2" />
+                        <Select.Value placeholder="Select Player 1" />
                       </Select.Trigger>
 
-                      {/* Sheet for mobile */}
                       <Adapt when={true} platform="touch">
-                        <Sheet
-                          modal
-                          dismissOnSnapToBottom
-                          position={0}
-                        >
+                        <Sheet modal dismissOnSnapToBottom position={0}>
                           <Sheet.Frame height={400}>
                             <Adapt.Contents />
                           </Sheet.Frame>
@@ -477,115 +752,17 @@ export default function AddScore() {
                         </Sheet>
                       </Adapt>
 
-                      {/* Scrollable Content */}
                       <Select.Content zIndex={200000}>
                         <Select.ScrollUpButton />
                         <Select.Viewport minH={100} maxH={300}>
                           <Select.Group>
                             <Select.Label>Players</Select.Label>
-                            {availableYourPlayer2.map((playerName, index) => (
-                              <Select.Item key={playerName} value={playerName} index={index}>
-                                <Select.ItemText>{playerName}</Select.ItemText>
-                              </Select.Item>
-                            ))}
-                          </Select.Group>
-                        </Select.Viewport>
-                        <Select.ScrollDownButton />
-                      </Select.Content>
-                    </Select>
-                  )}
-
-                </YStack>
-
-                {/* Opponent Team */}
-                <YStack space="$2">
-                  <Text fontSize="$3" fontWeight="500">Opponent Team</Text>
-                  <Select
-                    value={opponentPlayer1}
-                    onValueChange={(value) => {
-                      setOpponentPlayer1(value);
-                      if (value === yourPlayer2) setYourPlayer2("");
-                      if (value === opponentPlayer2) setOpponentPlayer2("");
-                    }}
-                  >
-                    <Select.Trigger
-                      backgroundColor="$color4"
-                      borderColor="$borderColor"
-                      width="100%"
-                    >
-                      <Select.Value placeholder="Select Player 1" />
-                    </Select.Trigger>
-
-                    {/* Sheet for mobile */}
-                    <Adapt when={true} platform="touch">
-                      <Sheet
-                        modal
-                        dismissOnSnapToBottom
-                        position={0}
-                      >
-                        <Sheet.Frame height={400}>
-                          <Adapt.Contents />
-                        </Sheet.Frame>
-                        <Sheet.Overlay />
-                      </Sheet>
-                    </Adapt>
-
-                    {/* Scrollable Content */}
-                    <Select.Content zIndex={200000}>
-                      <Select.ScrollUpButton />
-                      <Select.Viewport minH={100} maxH={300}>
-                        <Select.Group>
-                          <Select.Label>Players</Select.Label>
                           {availableOpponentPlayer1.map((playerName, index) => (
-                            <Select.Item key={playerName} value={playerName} index={index}>
-                              <Select.ItemText>{playerName}</Select.ItemText>
-                            </Select.Item>
-                          ))}
-                        </Select.Group>
-                      </Select.Viewport>
-                      <Select.ScrollDownButton />
-                    </Select.Content>
-                  </Select>
-
-                  {matchType === "doubles" && (
-                    <Select
-                      value={opponentPlayer2}
-                      onValueChange={(value) => {
-                        setOpponentPlayer2(value);
-                        if (value === yourPlayer2) setYourPlayer2("");
-                        if (value === opponentPlayer1) setOpponentPlayer1("");
-                      }}
-                    >
-                      <Select.Trigger
-                        backgroundColor="$color4"
-                        borderColor="$borderColor"
-                        width="100%"
-                      >
-                        <Select.Value placeholder="Select Player 2" />
-                      </Select.Trigger>
-
-                      {/* Sheet for mobile */}
-                      <Adapt when={true} platform="touch">
-                        <Sheet
-                          modal
-                          dismissOnSnapToBottom
-                          position={0}
-                        >
-                          <Sheet.Frame height={400}>
-                            <Adapt.Contents />
-                          </Sheet.Frame>
-                          <Sheet.Overlay />
-                        </Sheet>
-                      </Adapt>
-
-                      {/* Scrollable Content */}
-                      <Select.Content zIndex={200000}>
-                        <Select.ScrollUpButton />
-                        <Select.Viewport minH={100} maxH={300}>
-                          <Select.Group>
-                            <Select.Label>Players</Select.Label>
-                            {availableOpponentPlayer2.map((playerName, index) => (
-                              <Select.Item key={playerName} value={playerName} index={index}>
+                            <Select.Item
+                              key={`${playerName || "player"}-${index}`}
+                              value={playerName}
+                              index={index}
+                            >
                                 <Select.ItemText>{playerName}</Select.ItemText>
                               </Select.Item>
                             ))}
@@ -594,33 +771,250 @@ export default function AddScore() {
                         <Select.ScrollDownButton />
                       </Select.Content>
                     </Select>
-                  )}
+
+                    {matchType === "doubles" && (
+                      <Select
+                        value={opponentPlayer2}
+                        onValueChange={(value) => {
+                          setOpponentPlayer2(value);
+                          if (value === yourPlayer2) setYourPlayer2("");
+                          if (value === opponentPlayer1) setOpponentPlayer1("");
+                        }}
+                      >
+                        <Select.Trigger
+                          backgroundColor="$color4"
+                          borderColor="$borderColor"
+                          width="100%"
+                        >
+                          <Select.Value placeholder="Select Player 2" />
+                        </Select.Trigger>
+
+                        <Adapt when={true} platform="touch">
+                          <Sheet modal dismissOnSnapToBottom position={0}>
+                            <Sheet.Frame height={400}>
+                              <Adapt.Contents />
+                            </Sheet.Frame>
+                            <Sheet.Overlay />
+                          </Sheet>
+                        </Adapt>
+
+                        <Select.Content zIndex={200000}>
+                          <Select.ScrollUpButton />
+                          <Select.Viewport minH={100} maxH={300}>
+                            <Select.Group>
+                              <Select.Label>Players</Select.Label>
+                              {availableOpponentPlayer2.map((playerName, index) => (
+                                <Select.Item
+                                  key={`${playerName || "player"}-${index}`}
+                                  value={playerName}
+                                  index={index}
+                                >
+                                  <Select.ItemText>{playerName}</Select.ItemText>
+                                </Select.Item>
+                              ))}
+                            </Select.Group>
+                          </Select.Viewport>
+                          <Select.ScrollDownButton />
+                        </Select.Content>
+                      </Select>
+                    )}
+                  </YStack>
+
+                  {/* Placeholder quick add – reserved for future enhancements */}
+                  <Button
+                    bg="$color9"
+                    onPress={() => {
+                      // Placeholder for future quick add functionality
+                    }}
+                    mt="$1"
+                    color="$color1"
+                  >
+                    Quick Add Player
+                  </Button>
                 </YStack>
-
-                <Button
-                  bg="$color9"
-                  onPress={() => {
-                    
-                  }}
-                  mt="$2"
-                  color="$color1"
-                >
-                  Quick Add Player
-                </Button>
-
-                
-              </YStack>
-            </Card>
-            <Button
-                bg="$color9"
-                onPress={handleSaveMatch}
-                mt="$1"
-                color="$color1"
-              >
-                Save match scores
-              </Button>
+              </Card>
+            )}
           </YStack>
         </ScrollView>
+
+        {/* Date picker modal */}
+        <Dialog
+          modal
+          open={showDatePicker}
+          onOpenChange={(open) => {
+            setShowDatePicker(open);
+            if (!open) {
+              setDraftDate(date);
+            }
+          }}
+        >
+          <Dialog.Portal>
+            <Dialog.Overlay opacity={0.4} bg="black" />
+            <Dialog.Content bordered elevate key="date-content">
+              <Card
+                p="$4"
+                backgroundColor="$background"
+                borderRadius="$4"
+                style={{ width: 320, maxWidth: "90%" }}
+                key="date-card"
+              >
+                <Dialog.Title>Select Match Date</Dialog.Title>
+                <Paragraph color="$color10" mt="$2" mb="$3">
+                  Choose the date this match was played.
+                </Paragraph>
+                <YStack space="$3" style={{ alignItems: "center" }} key="date-stack">
+                  <DateTimePicker
+                    value={draftDate}
+                    mode="date"
+                    display={Platform.OS === "ios" ? "spinner" : "spinner"}
+                    onChange={onDraftDateChange}
+                    textColor="black"
+                    maximumDate={new Date()}
+                    key="date-picker"
+                    style={{
+                      alignSelf: "center",
+                      height: Platform.OS === "ios" ? 180 : 140
+                    }}
+                  />
+                <XStack space="$3" key="date-buttons">
+                  <Dialog.Close key="date-cancel" asChild>
+                    <Button
+                      key="date-cancel-button"
+                      variant="outlined"
+                      onPress={() => {
+                        setDraftDate(date);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </Dialog.Close>
+                  <Dialog.Close key="date-done" asChild>
+                    <Button
+                      key="date-done-button"
+                      bg="$color9"
+                      color="$color1"
+                      onPress={confirmDateSelection}
+                    >
+                      Done
+                    </Button>
+                  </Dialog.Close>
+                  </XStack>
+                </YStack>
+              </Card>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog>
+
+        {/* Time picker modal */}
+        <Dialog
+          modal
+          open={showTimePicker}
+          onOpenChange={(open) => {
+            setShowTimePicker(open);
+            if (!open) {
+              setDraftDate(date);
+            }
+          }}
+        >
+          <Dialog.Portal>
+            <Dialog.Overlay opacity={0.4} bg="black" />
+            <Dialog.Content bordered elevate key="time-content">
+              <Card
+                p="$4"
+                backgroundColor="$background"
+                borderRadius="$4"
+                key="time-card"
+                style={{ width: 320, maxWidth: "90%" }}
+              >
+                <Dialog.Title>Select Match Time</Dialog.Title>
+                <Paragraph color="$color10" mt="$2" mb="$3">
+                  Choose the start time for this match.
+                </Paragraph>
+                <YStack space="$3" style={{ alignItems: "center" }} key="time-stack">
+                  <DateTimePicker
+                    value={draftDate}
+                    mode="time"
+                    display={Platform.OS === "ios" ? "spinner" : "spinner"}
+                    onChange={onDraftTimeChange}
+                    textColor="black"
+                    key="time-picker"
+                    style={{
+                      alignSelf: "center",
+                      height: Platform.OS === "ios" ? 180 : 140
+                    }}
+                  />
+                <XStack space="$3" key="time-buttons">
+                  <Dialog.Close key="time-cancel" asChild>
+                    <Button
+                      key="time-cancel-button"
+                      variant="outlined"
+                      onPress={() => {
+                        setDraftDate(date);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </Dialog.Close>
+                  <Dialog.Close key="time-done" asChild>
+                    <Button
+                      key="time-done-button"
+                      bg="$color9"
+                      color="$color1"
+                      onPress={confirmTimeSelection}
+                    >
+                      Done
+                    </Button>
+                  </Dialog.Close>
+                  </XStack>
+                </YStack>
+              </Card>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog>
+
+        {/* Footer controls: Back button, reset score shortcut, and Next/Save primary action */}
+        <XStack
+          px="$4"
+          py="$3"
+          verticalAlign="center"
+          justify="space-between"
+          borderTopWidth={1}
+          borderTopColor="$borderColor"
+          bg="$background"
+        >
+          {currentStep > 0 ? (
+            <Button variant="outlined" size="$4" onPress={goToPreviousStep}>
+              Back
+            </Button>
+          ) : (
+            <View width={88} />
+          )}
+
+          <XStack space="$3" verticalAlign="center">
+            {currentStep === 1 && (
+              <Button
+                size="$3"
+                bg="$color3"
+                borderColor="$borderColor"
+                style={{borderRadius: 8}}
+                width={44}
+                height={44}
+                p="$2"
+                onPress={resetGame}
+              >
+                <Ionicons name="refresh" size={18} color="$color9" />
+              </Button>
+            )}
+            <Button
+              size="$4"
+              bg="$color9"
+              color="$color1"
+              onPress={handlePrimaryAction}
+            >
+              {currentStep === totalSteps - 1 ? "Save match scores" : "Next"}
+            </Button>
+          </XStack>
+        </XStack>
       </View>
     </SafeAreaWrapper>
   );

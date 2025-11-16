@@ -59,7 +59,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="matchHistory"
         options={{ 
-          tabBarLabel: 'History',
+          tabBarLabel: 'Matches',
           tabBarIcon: ({ focused }) => (
             <Ionicons name="trophy" size={24} color={focused ? 'black' : 'gray'} />
           ),

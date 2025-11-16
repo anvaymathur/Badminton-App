@@ -62,6 +62,8 @@ const deriveInitialsFromName = (name?: string): string => {
 };
 
 interface PhotoAvatarProps {
+  b?: any;
+  r?: any;
   size?: any;
   photoUrl?: string;
   name?: string;
@@ -94,6 +96,8 @@ export const PhotoAvatar: React.FC<PhotoAvatarProps> = ({
   backgroundColor = '$color9',
   textColor = '$color1',
   fontSize = '$4',
+  b="$4",
+  r="$4"
 }) => {
   const [localPhotoRef, setLocalPhotoRef] = useState<string | null>(() =>
     normalizePhotoReference(photoUrl),
@@ -241,7 +245,8 @@ export const PhotoAvatar: React.FC<PhotoAvatarProps> = ({
           borderColor={borderColor}
           borderStyle={editable && !hasRealImage ? 'dashed' : 'solid'}
           background="transparent"
-          b="$4"
+          b={b}
+          r={r}
         >
           {renderAvatarContent()}
         </Avatar>
