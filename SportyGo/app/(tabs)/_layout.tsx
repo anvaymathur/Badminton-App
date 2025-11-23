@@ -10,7 +10,7 @@ export default function TabsLayout() {
     '/dashboard',
     '/groups/displayGroups',
     '/events/EventsList',
-    '/matchHistory/viewScore',
+    '/matches/viewScore',
     '/userProfile',
   ];
   const shouldHideTabBar = !topLevelPaths.includes(pathname);
@@ -71,7 +71,7 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="matchHistory"
+        name="matches"
         options={{
           tabBarLabel: 'Matches',
           tabBarIcon: ({ focused }) => (
@@ -80,12 +80,12 @@ export default function TabsLayout() {
         }}
         listeners={{
           tabPress: (e) => {
-            if (pathname === '/matchHistory/viewScore') {
+            if (pathname === '/matches/viewScore') {
               e.preventDefault();
               return;
             }
             e.preventDefault();
-            router.replace('/matchHistory/viewScore');
+            router.replace('/matches/viewScore');
           },
         }}
       />

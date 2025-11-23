@@ -354,7 +354,7 @@ export default function ViewScore() {
           accessibilityLabel={`Match on ${formatMatchDate(item.date)}. Tap for details.`}
           onPress={() =>
             (router as any).push({
-              pathname: "/matchHistory/viewIndividualScore",
+              pathname: "/matches/viewIndividualScore",
               params: { matchId: item.id },
             })
           }
@@ -653,11 +653,11 @@ export default function ViewScore() {
           verticalAlign="center"
         >
 
-          <H4 verticalAlign="center" flex={1}>Match History</H4>
+          <H4 verticalAlign="center" flex={1}>My Matches</H4>
           <Button
             variant="outlined"
             size="$3"
-            onPress={() => router.push('/matchHistory/addScore')}
+            onPress={() => router.push('/matches/addScore')}
             icon={<Ionicons name="add" size={20} />}
           />
         </XStack>
@@ -665,7 +665,7 @@ export default function ViewScore() {
         {/* W-L-T summary strip reflects the currently filtered dataset */}
         <YStack px="$4" py="$3" borderBottomWidth={1} borderBottomColor="$borderColor" bg="$background">
           <Text fontSize="$2" color="$color10">
-            Record (current selection)
+            Record
           </Text>
           <XStack space="$3" mt="$2">
             {[
@@ -793,7 +793,7 @@ export default function ViewScore() {
                 accessible
                 accessibilityRole="button"
                 accessibilityLabel="No matches yet. Tap to add your first match."
-                onPress={() => router.push('/matchHistory/addScore')}
+                onPress={() => router.push('/matches/addScore')}
               >
                 <YStack space="$3" verticalAlign="center">
                   <Ionicons name="trophy-outline" size={48} color="#666" />
@@ -804,7 +804,7 @@ export default function ViewScore() {
                   <Button
                     bg="$color9"
                     color="$color1"
-                    onPress={() => router.push('/matchHistory/addScore')}
+                    onPress={() => router.push('/matches/addScore')}
                     mt="$2"
                   >
                     Add First Match

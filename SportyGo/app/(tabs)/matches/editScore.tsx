@@ -418,7 +418,7 @@ export default function EditScore() {
 
       setSaving(false);
       router.replace({
-        pathname: "/(tabs)/matchHistory/viewIndividualScore",
+        pathname: "/(tabs)/matches/viewIndividualScore",
         params: { matchId: docId },
       });
     } catch {

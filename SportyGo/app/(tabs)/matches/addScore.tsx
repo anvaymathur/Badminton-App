@@ -23,8 +23,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
-import { getAllUserProfiles, createMatchHistory } from '@/firebase/services_firestore2';
-import { newMatchHistory } from '@/firebase/types_index';
+import { createMatchHistory } from '@/firebase/services_firestore2';
+import { useConnectedUsers } from '../../hooks/useConnectedUsers';
+import { newMatchHistory, UserDoc } from '@/firebase/types_index';
 import { Alert, Platform } from "react-native";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { UserContext } from '../../components/userContext';
@@ -228,14 +229,16 @@ export default function AddScore() {
     });
   }, [globalUser, user]);
 
+  const { connectedUsers } = useConnectedUsers(user?.sub);
+
   useEffect(() => {
-    const fetchPlayers = async () => {
-      // Pull the full roster so the user can pick teammates/opponents.
-      const fetchedPlayers = await getAllUserProfiles();
+    if (connectedUsers.length === 0) return;
+
+    const processPlayers = () => {
       let nameFromProfiles = "";
       const uniqueNames = [
         ...new Set(
-          fetchedPlayers
+          connectedUsers
             .map((player) => player.Name?.trim() ?? "")
             .filter((name): name is string => name.length > 0)
         ),
@@ -243,7 +246,7 @@ export default function AddScore() {
 
       // Create name-to-id mapping
       const nameToIdMap: { [name: string]: string } = {};
-      fetchedPlayers.forEach(player => {
+      connectedUsers.forEach(player => {
         const trimmedName = player.Name?.trim();
         if (trimmedName && trimmedName.length > 0) {
           nameToIdMap[trimmedName] = player.id;
@@ -267,8 +270,8 @@ export default function AddScore() {
       }
     };
 
-    fetchPlayers();
-  }, [user?.sub]);
+    processPlayers();
+  }, [connectedUsers, user?.sub]);
 
   useEffect(() => {
     if (showDatePicker || showTimePicker) {
@@ -373,7 +376,7 @@ export default function AddScore() {
         id: ""
       };
       await createMatchHistory(matchData);
-      router.replace('/matchHistory/viewScore')
+      router.replace('/matches/viewScore')
     } else {
       Alert.alert(
         "Missing Information",

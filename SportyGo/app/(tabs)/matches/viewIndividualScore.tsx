@@ -291,7 +291,7 @@ export default function ViewIndividualScore() {
   const handleStartEdit = useCallback(() => {
     if (!matchId) return;
     router.push({
-      pathname: "/(tabs)/matchHistory/editScore",
+      pathname: "/(tabs)/matches/editScore",
       params: { matchId },
     });
   }, [router, matchId]);
@@ -334,7 +334,7 @@ export default function ViewIndividualScore() {
       <YStack flex={1} bg="$background" justify="center" verticalAlign="center" space="$4" p="$4">
         <H4 color="$color">Match not found</H4>
         <Paragraph color="$color10">We couldn't load this match. Try again from your history.</Paragraph>
-        <Button variant="outlined" onPress={() => router.push("/(tabs)/matchHistory/viewScore")} mt="$2" icon={<Ionicons name="arrow-back" size={18} />}>Go Back</Button>
+        <Button variant="outlined" onPress={() => router.push("/(tabs)/matches/viewScore")} mt="$2" icon={<Ionicons name="arrow-back" size={18} />}>Go Back</Button>
       </YStack>
     );
   }
@@ -386,7 +386,7 @@ export default function ViewIndividualScore() {
           <Button
             variant="outlined"
             size="$3"
-            onPress={() => router.push("/(tabs)/matchHistory/viewScore")}
+            onPress={() => router.push("/(tabs)/matches/viewScore")}
             mr="$3"
             icon={<Ionicons name="arrow-back" size={20} />}
           />

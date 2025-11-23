@@ -222,7 +222,7 @@ export default function Dashboard() {
           </Card>
 
           {/* Latest 5 Matches Card */}
-          <Card p="$4" borderRadius="$4" onPress={() => router.push('/matchHistory/viewScore')} bg="$color2">
+          <Card p="$4" borderRadius="$4" onPress={() => router.push('/matches/viewScore')} bg="$color2">
             <YStack gap="$2">
               <H3 verticalAlign="middle" color="$color9">Latest Matches</H3>
               <Separator />
