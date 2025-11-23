@@ -47,15 +47,6 @@ const getAvatarInitials = (name: string) => {
   return compact.slice(0, 2).toUpperCase();
 };
 
-const getAvatarColor = (name: string) => {
-  let hash = 0;
-  for (let i = 0; i < name.length; i += 1) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 65%, 50%)`;
-};
-
 // Normalises Firestore timestamps / ISO strings into Date objects the rest of the module can use.
 const parseMatchDate = (date: Date | string | any): Date | null => {
   let dateObj: Date | null = null;
@@ -135,7 +126,6 @@ const getMatchOutcome = (
 
 const PlayerAvatar = ({ name, photoUrl }: { name: string; photoUrl: string | null }) => {
   const initials = useMemo(() => getAvatarInitials(name), [name]);
-  const backgroundColor = useMemo(() => getAvatarColor(name), [name]);
   const opacity = useRef(new Animated.Value(photoUrl ? 0 : 1)).current;
 
   useEffect(() => {
@@ -161,7 +151,7 @@ const PlayerAvatar = ({ name, photoUrl }: { name: string; photoUrl: string | nul
       <Avatar.Fallback
         alignItems="center"
         justifyContent="center"
-        style={{ backgroundColor }}
+        backgroundColor="$color9"
       >
         <Text fontSize="$2" fontWeight="600" color="$color1">
           {initials}
@@ -190,7 +180,7 @@ export default function ViewScore() {
   // Router + auth context give us navigation helpers and the current user id.
   const router = useRouter();
   const { user } = useAuth0();
-  const {globalUser} = useContext(UserContext)
+  const { globalUser } = useContext(UserContext)
   const userName: string = globalUser?.name ?? "";
   const userID: string = user?.sub ?? "";
 
@@ -211,6 +201,8 @@ export default function ViewScore() {
     sortOrder,
     setSortOrder,
     resultFilter,
+    setResultFilter,
+
     filterStartDate,
     filterEndDate,
     filterStartTime,
@@ -490,35 +482,34 @@ export default function ViewScore() {
   const keyExtractor = useCallback((item: newMatchHistory, index: number) => {
     return (
       (item as any).id ||
-      `${item.team1?.[0] ?? "t1a"}-${item.team2?.[0] ?? "t2a"}-${
-        (item as any)?.date?.toString?.() ?? index
+      `${item.team1?.[0] ?? "t1a"}-${item.team2?.[0] ?? "t2a"}-${(item as any)?.date?.toString?.() ?? index
       }`
     );
   }, []);
 
-  const sortedFilteredHistory = useMemo(() => {
+  const baseFilteredHistory = useMemo(() => {
     // Convert selected dates into inclusive start/end bounds for easier comparisons.
     const startDateBoundary = filterStartDate
       ? new Date(
-          filterStartDate.getFullYear(),
-          filterStartDate.getMonth(),
-          filterStartDate.getDate(),
-          0,
-          0,
-          0,
-          0
-        )
+        filterStartDate.getFullYear(),
+        filterStartDate.getMonth(),
+        filterStartDate.getDate(),
+        0,
+        0,
+        0,
+        0
+      )
       : null;
     const endDateBoundary = filterEndDate
       ? new Date(
-          filterEndDate.getFullYear(),
-          filterEndDate.getMonth(),
-          filterEndDate.getDate(),
-          23,
-          59,
-          59,
-          999
-        )
+        filterEndDate.getFullYear(),
+        filterEndDate.getMonth(),
+        filterEndDate.getDate(),
+        23,
+        59,
+        59,
+        999
+      )
       : null;
 
     const startMinutesRaw =
@@ -542,12 +533,7 @@ export default function ViewScore() {
       endMinutes = startMinutesRaw;
     }
 
-    const filtered = matchHistory.filter((match) => {
-      // Outcome filter: honour the selected win/loss/tie toggle (from the user's perspective).
-      if (resultFilter !== "all" && getMatchOutcome(match, userID ?? null) !== resultFilter) {
-        return false;
-      }
-
+    return matchHistory.filter((match) => {
       const matchDateObj = parseMatchDate(match.date);
       if (!matchDateObj) return false;
 
@@ -563,8 +549,24 @@ export default function ViewScore() {
 
       return true;
     });
+  }, [
+    matchHistory,
+    filterStartDate,
+    filterEndDate,
+    filterStartTime,
+    filterEndTime,
+  ]);
 
-    const sorted = [...filtered].sort((a, b) => {
+  const sortedFilteredHistory = useMemo(() => {
+    const filtered = baseFilteredHistory.filter((match) => {
+      // Outcome filter: honour the selected win/loss/tie toggle (from the user's perspective).
+      if (resultFilter !== "all" && getMatchOutcome(match, userID ?? null) !== resultFilter) {
+        return false;
+      }
+      return true;
+    });
+
+    return filtered.sort((a, b) => {
       const dateA = parseMatchDate(a.date)?.getTime() ?? 0;
       const dateB = parseMatchDate(b.date)?.getTime() ?? 0;
       if (sortOrder === "recent") {
@@ -572,22 +574,13 @@ export default function ViewScore() {
       }
       return dateA - dateB;
     });
-
-    return sorted;
-  }, [
-    matchHistory,
-    sortOrder,
-    resultFilter,
-    filterStartDate,
-    filterEndDate,
-    filterStartTime,
-    filterEndTime,
-    userID,
-  ]);
+  }, [baseFilteredHistory, resultFilter, sortOrder, userID]);
 
   // Aggregate record used for the W-L-T summary strip at the top of the screen.
+  // We use baseFilteredHistory (date/time filters only) so the counts don't change
+  // when the user toggles W/L/T.
   const recordSummary = useMemo(() => {
-    return sortedFilteredHistory.reduce(
+    return baseFilteredHistory.reduce(
       (acc, match) => {
         const outcome = getMatchOutcome(match, userID ?? null);
         if (outcome === "win") acc.win += 1;
@@ -597,20 +590,20 @@ export default function ViewScore() {
       },
       { win: 0, loss: 0, tie: 0 }
     );
-  }, [sortedFilteredHistory, userID]);
+  }, [baseFilteredHistory, userID]);
 
   const hasMatches = matchHistory.length > 0;
   const isFilteredViewEmpty = hasMatches && sortedFilteredHistory.length === 0;
 
   // Show a full-screen spinner while we bootstrap data or when the user is not fully authenticated yet.
   if (loading || !userID) {
-      return (
+    return (
       <YStack flex={1} bg="$background" justify="center" verticalAlign="center" space="$4">
-          <Spinner size="large" color="$color9" />
-          <Text color="$color10">Fetching match history…</Text>
-    </YStack>
-  );
-}
+        <Spinner size="large" color="$color9" />
+        <Text color="$color10">Fetching match history…</Text>
+      </YStack>
+    );
+  }
 
   // Dedicated error state giving the user an actionable retry button.
   if (errorMessage) {
@@ -659,7 +652,7 @@ export default function ViewScore() {
           borderBottomColor="$borderColor"
           verticalAlign="center"
         >
-          
+
           <H4 verticalAlign="center" flex={1}>Match History</H4>
           <Button
             variant="outlined"
@@ -677,23 +670,29 @@ export default function ViewScore() {
           <XStack space="$3" mt="$2">
             {[
               { key: "win", label: "W", color: MATCH_OUTCOME_STYLES.win.accent, value: recordSummary.win },
-              { key: "loss", label: "L", color: MATCH_OUTCOME_STYLES.lose.accent, value: recordSummary.loss },
+              { key: "lose", label: "L", color: MATCH_OUTCOME_STYLES.lose.accent, value: recordSummary.loss },
               { key: "tie", label: "T", color: MATCH_OUTCOME_STYLES.tie.accent, value: recordSummary.tie },
-            ].map((item) => (
-              <Card
-                key={item.key}
-                padding="$2"
-                borderWidth={1}
-                borderColor="$borderColor"
-                backgroundColor="$color2"
-                minWidth={72}
-                alignItems="center"
-              >
-                <Text fontSize="$5" fontWeight="700" color={item.color}>
-                  {item.label} {item.value}
-                </Text>
-              </Card>
-            ))}
+            ].map((item) => {
+              const isSelected = resultFilter === item.key;
+              return (
+                <Card
+                  key={item.key}
+                  padding="$2"
+                  borderWidth={isSelected ? 2 : 1}
+                  borderColor={isSelected ? item.color : "$borderColor"}
+                  backgroundColor="$color2"
+                  minWidth={72}
+                  alignItems="center"
+                  pressStyle={{ scale: 0.95, opacity: 0.8 }}
+                  onPress={() => setResultFilter(isSelected ? "all" : (item.key as "win" | "lose" | "tie"))}
+                  animation="quick"
+                >
+                  <Text fontSize="$5" fontWeight="700" color={item.color}>
+                    {item.label} {item.value}
+                  </Text>
+                </Card>
+              );
+            })}
           </XStack>
         </YStack>
 
@@ -1009,10 +1008,10 @@ export default function ViewScore() {
                   {activePicker === "startDate"
                     ? "Select start date"
                     : activePicker === "endDate"
-                    ? "Select end date"
-                    : activePicker === "startTime"
-                    ? "Select start time"
-                    : "Select end time"}
+                      ? "Select end date"
+                      : activePicker === "startTime"
+                        ? "Select start time"
+                        : "Select end time"}
                 </Dialog.Title>
                 <DateTimePicker
                   value={pickerValue}

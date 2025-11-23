@@ -10,6 +10,7 @@ type UseMatchFiltersReturn = {
   sortOrder: "recent" | "oldest";
   setSortOrder: (value: "recent" | "oldest") => void;
   resultFilter: "all" | "win" | "lose" | "tie";
+  setResultFilter: (value: "all" | "win" | "lose" | "tie") => void;
   filterStartDate: Date | null;
   filterEndDate: Date | null;
   filterStartTime: Date | null;
@@ -371,6 +372,10 @@ export function useMatchFilters(): UseMatchFiltersReturn {
     pickerMaximumDate,
     pickerMinimumDate,
     setPendingValue,
+    setResultFilter: (value: "all" | "win" | "lose" | "tie") => {
+      setResultFilter(value);
+      setPendingResultFilter(value);
+    },
   };
 }
 

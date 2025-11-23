@@ -667,6 +667,14 @@ export async function createMatchHistory(matchData: newMatchHistory) {
   return setDoc(matchHistoryRef, matchDataWithId);
 }
 
+export async function updateMatchHistory(
+  matchId: string,
+  updates: Partial<newMatchHistory>
+) {
+  const { id: _ignored, ...rest } = updates as Record<string, unknown>;
+  return updateDoc(doc(db, "matchHistory", matchId), rest);
+}
+
 export async function getUserMatchHistory(userId: string): Promise<newMatchHistory[]> {
   const matchHistoryCol = collection(db, "matchHistory");
   // Query only documents where userId is in either team1 or team2

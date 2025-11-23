@@ -1,13 +1,28 @@
 // Detailed match view screen.
 // Shows a single match's metadata, winner banner, team avatars, and score breakdown
 // after navigating from history, enriching entries with player profile data.
-import React, { useEffect, useState } from "react";
-import { View, Text, Button, XStack, YStack, Card, H4, Paragraph, Separator, Spinner, Avatar } from "tamagui";
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  Button,
+  XStack,
+  YStack,
+  Card,
+  H4,
+  Paragraph,
+  Separator,
+  Spinner,
+  Avatar,
+} from "tamagui";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { deleteMatchHistory, getMatchHistoryById, getUserProfile } from '../../../firebase/services_firestore2';
+import {
+  getMatchHistoryById,
+  getUserProfile,
+} from "../../../firebase/services_firestore2";
 import type { newMatchHistory } from "@/firebase/types_index";
-import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
+import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
 
 // Lightweight profile model used to render names + avatars alongside scores.
 type PlayerProfile = {
@@ -28,6 +43,44 @@ function getInitials(name: string) {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
+
+const parseToDate = (raw: Date | string | any): Date | null => {
+  if (raw instanceof Date) {
+    return Number.isNaN(raw.getTime()) ? null : raw;
+  }
+  if (typeof raw === "string") {
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (raw && typeof raw === "object" && typeof raw.toDate === "function") {
+    const converted = raw.toDate();
+    return Number.isNaN(converted.getTime()) ? null : converted;
+  }
+  if (raw !== undefined && raw !== null) {
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+};
+
+const formatDate = (date: Date | string | any) => {
+  const dateObj = parseToDate(date);
+  if (!dateObj) return "Invalid Date";
+  const hasTime = dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0;
+  return hasTime
+    ? dateObj.toLocaleString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : dateObj.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+};
 
 const WINNER_ACCENT_COLOR = "#047857";
 
@@ -146,91 +199,102 @@ export default function ViewIndividualScore() {
   const [team1Profiles, setTeam1Profiles] = useState<PlayerProfile[]>([]);
   const [team2Profiles, setTeam2Profiles] = useState<PlayerProfile[]>([]);
 
-  useEffect(() => {
-    // Fetch the match and accompanying player profiles when the screen mounts / id changes.
-    const fetchMatch = async () => {
+  const loadMatch = useCallback(
+    async ({ silent }: { silent?: boolean } = {}) => {
       if (!matchId) {
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      const data = await getMatchHistoryById(matchId);
-      setMatch(data);
-
-      // Fetch display names for players using profiles
-      if (data) {
-        const team1Ids = [sanitizePlayerId(data.team1[0]), sanitizePlayerId(data.team1[1])].filter(
-          (id): id is string => !!id
-        );
-        const team2Ids = [sanitizePlayerId(data.team2[0]), sanitizePlayerId(data.team2[1])].filter(
-          (id): id is string => !!id
-        );
-
-        // Fetch the profile for each player in parallel so avatars/names populate quickly.
-        const fetchProfiles = async (ids: string[]) =>
-          Promise.all(
-            ids.map(async (id) => {
-              try {
-                const profile = await getUserProfile(id);
-                const name = profile?.Name?.trim() ? profile.Name.trim() : id;
-                const photoUrl = profile?.PhotoUrl ?? null;
-                return { id, name, photoUrl } as PlayerProfile;
-              } catch {
-                return { id, name: id, photoUrl: null } as PlayerProfile;
-              }
-            })
-          );
-
-        const [team1Data, team2Data] = await Promise.all([
-          fetchProfiles(team1Ids),
-          fetchProfiles(team2Ids),
-        ]);
-
-        setTeam1Profiles(team1Data);
-        setTeam2Profiles(team2Data);
-
-        const fallbackNames = (profiles: PlayerProfile[], ids: string[]) => {
-          if (profiles.length > 0) {
-            return profiles.map((profile) => profile.name).join(" & ");
-          }
-          if (ids.length > 0) {
-            return ids.join(" & ");
-          }
-          return "";
-        };
-
-        setTeam1Names(fallbackNames(team1Data, team1Ids));
-        setTeam2Names(fallbackNames(team2Data, team2Ids));
-      } else {
+        if (!silent) {
+          setLoading(false);
+        }
+        setMatch(undefined);
         setTeam1Profiles([]);
         setTeam2Profiles([]);
         setTeam1Names("");
         setTeam2Names("");
+        return;
       }
-      setLoading(false);
-    };
 
-    fetchMatch();
-  }, [matchId]);
+      if (!silent) {
+        setLoading(true);
+      }
 
-  // Pretty-print match timestamps for the detail header.
-  const formatDate = (date: Date | string | any) => {
-    let dateObj: Date;
-    if (date instanceof Date) {
-      dateObj = date;
-    } else if (typeof date === "string") {
-      dateObj = new Date(date);
-    } else if (date && date.toDate) {
-      dateObj = date.toDate();
-    } else {
-      dateObj = new Date(date);
-    }
-    if (isNaN(dateObj.getTime())) return "Invalid Date";
-    const hasTime = dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0;
-    return hasTime
-      ? dateObj.toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-      : dateObj.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-  };
+      try {
+        const data = await getMatchHistoryById(matchId);
+        setMatch(data);
+
+        if (data) {
+          const team1Ids = [sanitizePlayerId(data.team1[0]), sanitizePlayerId(data.team1[1])].filter(
+            (id): id is string => !!id
+          );
+          const team2Ids = [sanitizePlayerId(data.team2[0]), sanitizePlayerId(data.team2[1])].filter(
+            (id): id is string => !!id
+          );
+
+          const fetchProfiles = async (ids: string[]) =>
+            Promise.all(
+              ids.map(async (id) => {
+                try {
+                  const profile = await getUserProfile(id);
+                  const name = profile?.Name?.trim() ? profile.Name.trim() : id;
+                  const photoUrl = profile?.PhotoUrl ?? null;
+                  return { id, name, photoUrl } as PlayerProfile;
+                } catch {
+                  return { id, name: id, photoUrl: null } as PlayerProfile;
+                }
+              })
+            );
+
+          const [team1Data, team2Data] = await Promise.all([
+            fetchProfiles(team1Ids),
+            fetchProfiles(team2Ids),
+          ]);
+
+          setTeam1Profiles(team1Data);
+          setTeam2Profiles(team2Data);
+
+          const fallbackNames = (profiles: PlayerProfile[], ids: string[]) => {
+            if (profiles.length > 0) {
+              return profiles.map((profile) => profile.name).join(" & ");
+            }
+            if (ids.length > 0) {
+              return ids.join(" & ");
+            }
+            return "";
+          };
+
+          setTeam1Names(fallbackNames(team1Data, team1Ids));
+          setTeam2Names(fallbackNames(team2Data, team2Ids));
+        } else {
+          setTeam1Profiles([]);
+          setTeam2Profiles([]);
+          setTeam1Names("");
+          setTeam2Names("");
+        }
+      } catch {
+        setMatch(undefined);
+        setTeam1Profiles([]);
+        setTeam2Profiles([]);
+        setTeam1Names("");
+        setTeam2Names("");
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
+      }
+    },
+    [matchId]
+  );
+
+  useEffect(() => {
+    loadMatch();
+  }, [loadMatch]);
+
+  const handleStartEdit = useCallback(() => {
+    if (!matchId) return;
+    router.push({
+      pathname: "/(tabs)/matchHistory/editScore",
+      params: { matchId },
+    });
+  }, [router, matchId]);
 
   // Loading placeholder while we fetch the match + profiles.
   if (loading) {
@@ -270,7 +334,7 @@ export default function ViewIndividualScore() {
       <YStack flex={1} bg="$background" justify="center" verticalAlign="center" space="$4" p="$4">
         <H4 color="$color">Match not found</H4>
         <Paragraph color="$color10">We couldn't load this match. Try again from your history.</Paragraph>
-        <Button variant="outlined" onPress={() => router.back()} mt="$2" icon={<Ionicons name="arrow-back" size={18} />}>Go Back</Button>
+        <Button variant="outlined" onPress={() => router.push("/(tabs)/matchHistory/viewScore")} mt="$2" icon={<Ionicons name="arrow-back" size={18} />}>Go Back</Button>
       </YStack>
     );
   }
@@ -322,7 +386,7 @@ export default function ViewIndividualScore() {
           <Button
             variant="outlined"
             size="$3"
-            onPress={() => router.back()}
+            onPress={() => router.push("/(tabs)/matchHistory/viewScore")}
             mr="$3"
             icon={<Ionicons name="arrow-back" size={20} />}
           />
@@ -330,7 +394,8 @@ export default function ViewIndividualScore() {
           <Button
             variant="outlined"
             size="$3"
-            onPress={() => { /* placeholder for edit functionality */ }}
+            onPress={handleStartEdit}
+            disabled={!match}
             icon={<Ionicons name="create-outline" size={20} />}
           >
             Edit
