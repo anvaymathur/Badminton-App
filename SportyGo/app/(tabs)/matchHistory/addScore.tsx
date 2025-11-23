@@ -17,19 +17,70 @@ import {
   Paragraph,
   Circle,
   Separator,
-  Dialog
+  Dialog,
+  Adapt
 } from "tamagui";
-import { Adapt } from '@tamagui/adapt'
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
-import { getAllUserProfiles, createMatchHistory} from '../../../firebase/services_firestore2';
-import { newMatchHistory } from "@/firebase/types_index";
+import { getAllUserProfiles, createMatchHistory } from '@/firebase/services_firestore2';
+import { newMatchHistory } from '@/firebase/types_index';
 import { Alert, Platform } from "react-native";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { UserContext } from '../../components/userContext';
 import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
 
+
+function PlayerPicker({ value, onValueChange, items, placeholder, label }: { value: string, onValueChange: (val: string) => void, items: string[], placeholder: string, label: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button
+        onPress={() => setOpen(true)}
+        bg="$color4"
+        borderColor="$borderColor"
+        borderWidth={1}
+        justify="space-between"
+        color={value ? "$color12" : "$color11"}
+        iconAfter={<Ionicons name="chevron-down" size={16} />}
+      >
+        {value || placeholder}
+      </Button>
+      <Sheet
+        modal
+        open={open}
+        onOpenChange={setOpen}
+        snapPoints={[50, 90]}
+        dismissOnSnapToBottom
+        zIndex={200000}
+      >
+        <Sheet.Frame p="$4" space="$4">
+          <Sheet.Handle />
+          <H5>{label}</H5>
+          <Sheet.ScrollView>
+            <YStack space="$2">
+              {items.map((item, idx) => (
+                <Button
+                  key={`${item}-${idx}`}
+                  onPress={() => {
+                    onValueChange(item);
+                    setOpen(false);
+                  }}
+                  bg={value === item ? "$color5" : "$color3"}
+                  color="$color12"
+                  justify="flex-start"
+                >
+                  {item}
+                </Button>
+              ))}
+            </YStack>
+          </Sheet.ScrollView>
+        </Sheet.Frame>
+      </Sheet>
+    </>
+  );
+}
 
 export default function AddScore() {
   const router = useRouter();
@@ -50,9 +101,8 @@ export default function AddScore() {
   const [currentStep, setCurrentStep] = useState(0);
   const [draftDate, setDraftDate] = useState<Date>(new Date(date));
 
-
-  const {user} = useAuth0()
-  const {globalUser} = useContext(UserContext)
+  const { user } = useAuth0()
+  const { globalUser } = useContext(UserContext)
 
   // Player directory pulled from Firestore so the wizard can present selection menus.
   const [players, setPlayers] = useState<string[]>([]);
@@ -141,11 +191,11 @@ export default function AddScore() {
   };
   const yourTeamLabel = buildTeamLabel(
     matchType === "doubles" ? [userName, yourPlayer2] : [userName],
-    "Your Team"
+    matchType === "singles" ? "You" : "Your Team"
   );
   const opponentTeamLabel = buildTeamLabel(
     matchType === "doubles" ? [opponentPlayer1, opponentPlayer2] : [opponentPlayer1],
-    "Opponent Team"
+    matchType === "singles" ? "Opponent" : "Opponent Team"
   );
 
   // Track focus to allow empty string while editing
@@ -190,7 +240,7 @@ export default function AddScore() {
             .filter((name): name is string => name.length > 0)
         ),
       ];
-      
+
       // Create name-to-id mapping
       const nameToIdMap: { [name: string]: string } = {};
       fetchedPlayers.forEach(player => {
@@ -202,7 +252,7 @@ export default function AddScore() {
           }
         }
       });
-      
+
       setPlayers(uniqueNames);
       setPlayerNameToId(nameToIdMap);
       if (nameFromProfiles) {
@@ -234,16 +284,16 @@ export default function AddScore() {
 
   const incrementScore = (team: "your" | "opponent") => {
 
-      if (team === "your") {
-        if (parseInt(yourScore) < 99) {
-          setYourScore(prev => ((isNaN(parseInt(prev)) ? 0 : parseInt(prev)) + 1).toString());
-        }
-      } else {
-        if (parseInt(opponentScore) < 99) {
-          setOpponentScore(prev => ((isNaN(parseInt(prev)) ? 0 : parseInt(prev)) + 1).toString());
-        }
+    if (team === "your") {
+      if (parseInt(yourScore) < 99) {
+        setYourScore(prev => ((isNaN(parseInt(prev)) ? 0 : parseInt(prev)) + 1).toString());
       }
-    
+    } else {
+      if (parseInt(opponentScore) < 99) {
+        setOpponentScore(prev => ((isNaN(parseInt(prev)) ? 0 : parseInt(prev)) + 1).toString());
+      }
+    }
+
   };
 
   const decrementScore = (team: "your" | "opponent") => {
@@ -308,22 +358,22 @@ export default function AddScore() {
       date !== null &&
       hasValidScore &&
       ((matchType === "doubles" && sanitizedOpponent2 && sanitizedYourPlayer2) || matchType === "singles")
-    ){
-      
-        // Get player IDs, fallback to names if ID not found
-        const team1Player1Id = playerNameToId[userName] || userID;
-        const team1Player2Id = matchType === 'doubles' ? (playerNameToId[yourPlayer2]) : '';
-        const team2Player1Id = playerNameToId[opponentPlayer1];
-        const team2Player2Id = matchType === 'doubles' ? (playerNameToId[opponentPlayer2]) : '';
-        
-        const matchData: newMatchHistory = {
-          team1: [team1Player1Id, team1Player2Id, parseInt(yourScore)],
-          team2: [team2Player1Id, team2Player2Id, parseInt(opponentScore)],
-          date: date,
-          id: ""
-        };
-        await createMatchHistory(matchData);
-        router.replace('/matchHistory/viewScore')
+    ) {
+
+      // Get player IDs, fallback to names if ID not found
+      const team1Player1Id = playerNameToId[userName] || userID;
+      const team1Player2Id = matchType === 'doubles' ? (playerNameToId[yourPlayer2]) : '';
+      const team2Player1Id = playerNameToId[opponentPlayer1];
+      const team2Player2Id = matchType === 'doubles' ? (playerNameToId[opponentPlayer2]) : '';
+
+      const matchData: newMatchHistory = {
+        team1: [team1Player1Id, team1Player2Id, parseInt(yourScore)],
+        team2: [team2Player1Id, team2Player2Id, parseInt(opponentScore)],
+        date: date,
+        id: ""
+      };
+      await createMatchHistory(matchData);
+      router.replace('/matchHistory/viewScore')
     } else {
       Alert.alert(
         "Missing Information",
@@ -662,7 +712,7 @@ export default function AddScore() {
                   {/* User team selectors */}
                   <YStack space="$3">
                     <Text fontSize="$3" fontWeight="500">
-                      Your Team
+                      {matchType === "singles" ? "You" : "Your Team"}
                     </Text>
                     <Select value={userName}>
                       <Select.Trigger
@@ -675,148 +725,49 @@ export default function AddScore() {
                     </Select>
 
                     {matchType === "doubles" && (
-                      <Select
+                      <PlayerPicker
                         value={yourPlayer2}
                         onValueChange={(value) => {
                           setYourPlayer2(value);
                           if (value === opponentPlayer1) setOpponentPlayer1("");
                           if (value === opponentPlayer2) setOpponentPlayer2("");
                         }}
-                      >
-                        <Select.Trigger
-                          backgroundColor="$color4"
-                          borderColor="$borderColor"
-                          width="100%"
-                        >
-                          <Select.Value placeholder="Select Player 2" />
-                        </Select.Trigger>
-
-                        <Adapt when={true} platform="touch">
-                          <Sheet modal dismissOnSnapToBottom position={0}>
-                            <Sheet.Frame height={400}>
-                              <Adapt.Contents />
-                            </Sheet.Frame>
-                            <Sheet.Overlay />
-                          </Sheet>
-                        </Adapt>
-
-                        <Select.Content zIndex={200000}>
-                          <Select.ScrollUpButton />
-                          <Select.Viewport minH={100} maxH={300}>
-                            <Select.Group>
-                              <Select.Label>Players</Select.Label>
-                              {availableYourPlayer2.map((playerName, index) => (
-                                <Select.Item
-                                  key={`${playerName || "player"}-${index}`}
-                                  value={playerName}
-                                  index={index}
-                                >
-                                  <Select.ItemText>{playerName}</Select.ItemText>
-                                </Select.Item>
-                              ))}
-                            </Select.Group>
-                          </Select.Viewport>
-                          <Select.ScrollDownButton />
-                        </Select.Content>
-                      </Select>
+                        items={availableYourPlayer2}
+                        placeholder="Select Player 2"
+                        label="Select Player 2"
+                      />
                     )}
                   </YStack>
 
                   {/* Opponent team selectors */}
                   <YStack space="$3">
                     <Text fontSize="$3" fontWeight="500">
-                      Opponent Team
+                      {matchType === "singles" ? "Opponent" : "Opponent Team"}
                     </Text>
-                    <Select
+                    <PlayerPicker
                       value={opponentPlayer1}
                       onValueChange={(value) => {
                         setOpponentPlayer1(value);
                         if (value === yourPlayer2) setYourPlayer2("");
                         if (value === opponentPlayer2) setOpponentPlayer2("");
                       }}
-                    >
-                      <Select.Trigger
-                        backgroundColor="$color4"
-                        borderColor="$borderColor"
-                        width="100%"
-                      >
-                        <Select.Value placeholder="Select Player 1" />
-                      </Select.Trigger>
-
-                      <Adapt when={true} platform="touch">
-                        <Sheet modal dismissOnSnapToBottom position={0}>
-                          <Sheet.Frame height={400}>
-                            <Adapt.Contents />
-                          </Sheet.Frame>
-                          <Sheet.Overlay />
-                        </Sheet>
-                      </Adapt>
-
-                      <Select.Content zIndex={200000}>
-                        <Select.ScrollUpButton />
-                        <Select.Viewport minH={100} maxH={300}>
-                          <Select.Group>
-                            <Select.Label>Players</Select.Label>
-                          {availableOpponentPlayer1.map((playerName, index) => (
-                            <Select.Item
-                              key={`${playerName || "player"}-${index}`}
-                              value={playerName}
-                              index={index}
-                            >
-                                <Select.ItemText>{playerName}</Select.ItemText>
-                              </Select.Item>
-                            ))}
-                          </Select.Group>
-                        </Select.Viewport>
-                        <Select.ScrollDownButton />
-                      </Select.Content>
-                    </Select>
+                      items={availableOpponentPlayer1}
+                      placeholder="Select Player 1"
+                      label="Select Player 1"
+                    />
 
                     {matchType === "doubles" && (
-                      <Select
+                      <PlayerPicker
                         value={opponentPlayer2}
                         onValueChange={(value) => {
                           setOpponentPlayer2(value);
                           if (value === yourPlayer2) setYourPlayer2("");
                           if (value === opponentPlayer1) setOpponentPlayer1("");
                         }}
-                      >
-                        <Select.Trigger
-                          backgroundColor="$color4"
-                          borderColor="$borderColor"
-                          width="100%"
-                        >
-                          <Select.Value placeholder="Select Player 2" />
-                        </Select.Trigger>
-
-                        <Adapt when={true} platform="touch">
-                          <Sheet modal dismissOnSnapToBottom position={0}>
-                            <Sheet.Frame height={400}>
-                              <Adapt.Contents />
-                            </Sheet.Frame>
-                            <Sheet.Overlay />
-                          </Sheet>
-                        </Adapt>
-
-                        <Select.Content zIndex={200000}>
-                          <Select.ScrollUpButton />
-                          <Select.Viewport minH={100} maxH={300}>
-                            <Select.Group>
-                              <Select.Label>Players</Select.Label>
-                              {availableOpponentPlayer2.map((playerName, index) => (
-                                <Select.Item
-                                  key={`${playerName || "player"}-${index}`}
-                                  value={playerName}
-                                  index={index}
-                                >
-                                  <Select.ItemText>{playerName}</Select.ItemText>
-                                </Select.Item>
-                              ))}
-                            </Select.Group>
-                          </Select.Viewport>
-                          <Select.ScrollDownButton />
-                        </Select.Content>
-                      </Select>
+                        items={availableOpponentPlayer2}
+                        placeholder="Select Player 2"
+                        label="Select Player 2"
+                      />
                     )}
                   </YStack>
 
@@ -876,28 +827,28 @@ export default function AddScore() {
                       height: Platform.OS === "ios" ? 180 : 140
                     }}
                   />
-                <XStack space="$3" key="date-buttons">
-                  <Dialog.Close key="date-cancel" asChild>
-                    <Button
-                      key="date-cancel-button"
-                      variant="outlined"
-                      onPress={() => {
-                        setDraftDate(date);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </Dialog.Close>
-                  <Dialog.Close key="date-done" asChild>
-                    <Button
-                      key="date-done-button"
-                      bg="$color9"
-                      color="$color1"
-                      onPress={confirmDateSelection}
-                    >
-                      Done
-                    </Button>
-                  </Dialog.Close>
+                  <XStack space="$3" key="date-buttons">
+                    <Dialog.Close key="date-cancel" asChild>
+                      <Button
+                        key="date-cancel-button"
+                        variant="outlined"
+                        onPress={() => {
+                          setDraftDate(date);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </Dialog.Close>
+                    <Dialog.Close key="date-done" asChild>
+                      <Button
+                        key="date-done-button"
+                        bg="$color9"
+                        color="$color1"
+                        onPress={confirmDateSelection}
+                      >
+                        Done
+                      </Button>
+                    </Dialog.Close>
                   </XStack>
                 </YStack>
               </Card>
@@ -943,28 +894,28 @@ export default function AddScore() {
                       height: Platform.OS === "ios" ? 180 : 140
                     }}
                   />
-                <XStack space="$3" key="time-buttons">
-                  <Dialog.Close key="time-cancel" asChild>
-                    <Button
-                      key="time-cancel-button"
-                      variant="outlined"
-                      onPress={() => {
-                        setDraftDate(date);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </Dialog.Close>
-                  <Dialog.Close key="time-done" asChild>
-                    <Button
-                      key="time-done-button"
-                      bg="$color9"
-                      color="$color1"
-                      onPress={confirmTimeSelection}
-                    >
-                      Done
-                    </Button>
-                  </Dialog.Close>
+                  <XStack space="$3" key="time-buttons">
+                    <Dialog.Close key="time-cancel" asChild>
+                      <Button
+                        key="time-cancel-button"
+                        variant="outlined"
+                        onPress={() => {
+                          setDraftDate(date);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </Dialog.Close>
+                    <Dialog.Close key="time-done" asChild>
+                      <Button
+                        key="time-done-button"
+                        bg="$color9"
+                        color="$color1"
+                        onPress={confirmTimeSelection}
+                      >
+                        Done
+                      </Button>
+                    </Dialog.Close>
                   </XStack>
                 </YStack>
               </Card>
@@ -996,7 +947,7 @@ export default function AddScore() {
                 size="$3"
                 bg="$color3"
                 borderColor="$borderColor"
-                style={{borderRadius: 8}}
+                style={{ borderRadius: 8 }}
                 width={44}
                 height={44}
                 p="$2"
@@ -1015,8 +966,8 @@ export default function AddScore() {
             </Button>
           </XStack>
         </XStack>
-      </View>
-    </SafeAreaWrapper>
+      </View >
+    </SafeAreaWrapper >
   );
 }
 
