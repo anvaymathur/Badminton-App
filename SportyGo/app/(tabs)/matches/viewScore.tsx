@@ -40,6 +40,7 @@ const MATCH_OUTCOME_STYLES = {
 
 const AnimatedImage = Animated.createAnimatedComponent(Image);
 
+// Generates initials for avatar fallbacks (first 2 chars of name, uppercase).
 const getAvatarInitials = (name: string) => {
   const trimmed = name.trim();
   if (!trimmed) return "??";
@@ -48,6 +49,7 @@ const getAvatarInitials = (name: string) => {
 };
 
 // Normalises Firestore timestamps / ISO strings into Date objects the rest of the module can use.
+// Handles Date objects, strings, and Firestore Timestamp objects (with toDate method).
 const parseMatchDate = (date: Date | string | any): Date | null => {
   let dateObj: Date | null = null;
 
@@ -69,6 +71,7 @@ const parseMatchDate = (date: Date | string | any): Date | null => {
 };
 
 // Formats a match date for display, including time if it was captured alongside the score.
+// If time is 00:00:00, it assumes only date was recorded.
 const formatMatchDate = (date: Date | string | any) => {
   const dateObj = parseMatchDate(date);
   if (!dateObj) return "Invalid Date";
@@ -112,6 +115,7 @@ const getTeamResult = (match: newMatchHistory) => {
 };
 
 // Produces the perspective-aware outcome (win/lose/tie) for the current user.
+// If the user didn't play, it returns the result from Team 1's perspective (or just win/lose for the winner).
 const getMatchOutcome = (
   match: newMatchHistory,
   userID: string | null
@@ -124,6 +128,12 @@ const getMatchOutcome = (
   return userTeam === winningTeam ? "win" : "lose";
 };
 
+/**
+ * PlayerAvatar Component
+ * 
+ * Renders a circular avatar for a player.
+ * Displays initials as a fallback, and fades in the profile image once loaded.
+ */
 const PlayerAvatar = ({ name, photoUrl }: { name: string; photoUrl: string | null }) => {
   const initials = useMemo(() => getAvatarInitials(name), [name]);
   const opacity = useRef(new Animated.Value(photoUrl ? 0 : 1)).current;
@@ -176,6 +186,13 @@ const PlayerAvatar = ({ name, photoUrl }: { name: string; photoUrl: string | nul
   );
 };
 
+/**
+ * ViewScore Component
+ * 
+ * The main screen for viewing match history.
+ * Supports filtering by result, date, and time.
+ * Displays a summary of the user's record (W-L-T).
+ */
 export default function ViewScore() {
   // Router + auth context give us navigation helpers and the current user id.
   const router = useRouter();
@@ -197,6 +214,7 @@ export default function ViewScore() {
   const { playerNames, visiblePlayers, onViewableItemsChanged } =
     usePlayerProfiles();
 
+  // Filter and sort state management from custom hook
   const {
     sortOrder,
     setSortOrder,
@@ -275,6 +293,7 @@ export default function ViewScore() {
   );
 
   // Synchronise Tamagui dialog events with the date/time picker coming from React Native.
+  // Updates the pending filter value based on the picker selection.
   const handlePickerChange = useCallback(
     (event: any, selectedDate?: Date) => {
       if (!activePicker) return;
@@ -296,6 +315,7 @@ export default function ViewScore() {
         );
         setPendingValue(activePicker, normalized);
       } else {
+        // For time, we normalize to a fixed date (epoch) to compare times only.
         const normalized = new Date(
           1970,
           0,
@@ -317,6 +337,7 @@ export default function ViewScore() {
     ]
   );
 
+  // Renders a single match card in the list.
   const renderItem = useCallback(
     ({ item }: { item: newMatchHistory }) => {
       const outcome = getMatchOutcome(item, userID ?? null);
@@ -487,6 +508,7 @@ export default function ViewScore() {
     );
   }, []);
 
+  // Filters the match history based on date and time ranges.
   const baseFilteredHistory = useMemo(() => {
     // Convert selected dates into inclusive start/end bounds for easier comparisons.
     const startDateBoundary = filterStartDate
@@ -557,6 +579,7 @@ export default function ViewScore() {
     filterEndTime,
   ]);
 
+  // Applies the result filter (win/loss/tie) and sorts the filtered list.
   const sortedFilteredHistory = useMemo(() => {
     const filtered = baseFilteredHistory.filter((match) => {
       // Outcome filter: honour the selected win/loss/tie toggle (from the user's perspective).

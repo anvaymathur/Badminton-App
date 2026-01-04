@@ -7,12 +7,21 @@ import { getUserMatchHistory } from "@/firebase/services_firestore2";
 import { newMatchHistory } from "@/firebase/types_index";
 
 // Shape returned by the useMatchHistory hook to keep consuming components type-safe.
+/**
+ * Return type for the `useMatchHistory` hook.
+ */
 type UseMatchHistoryResult = {
+  /** The list of match history records for the user. */
   matchHistory: newMatchHistory[];
+  /** Whether the data is currently being fetched (initial load). */
   loading: boolean;
+  /** Whether the data is currently being refreshed (pull-to-refresh). */
   refreshing: boolean;
+  /** Error message if the fetch failed, or null if successful. */
   errorMessage: string | null;
+  /** Function to retry the fetch operation (sets loading state). */
   retry: () => Promise<void>;
+  /** Function to handle pull-to-refresh (sets refreshing state). */
   handleRefresh: () => Promise<void>;
 };
 
@@ -25,6 +34,18 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 const isFresh = (timestamp?: number) =>
   typeof timestamp === "number" && Date.now() - timestamp < CACHE_TTL_MS;
 
+/**
+ * Custom hook to manage retrieval of a user's match history records.
+ * 
+ * This hook handles:
+ * - Fetching match history from Firestore.
+ * - Caching results in AsyncStorage for fast initial load.
+ * - Managing loading, refreshing, and error states.
+ * - Providing retry and refresh mechanisms.
+ * 
+ * @param userID - The ID of the user to fetch history for. If null, returns empty state.
+ * @returns A `UseMatchHistoryResult` object containing data and control functions.
+ */
 export function useMatchHistory(userID: string | null): UseMatchHistoryResult {
   // Local state mirrors the remote match history collection for the active user.
   const [matchHistory, setMatchHistory] = useState<newMatchHistory[]>([]);

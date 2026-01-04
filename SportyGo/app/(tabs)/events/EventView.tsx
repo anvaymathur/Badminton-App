@@ -8,7 +8,8 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useAuth0 } from 'react-native-auth0';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../../firebase/index';
-import { castVote, listenVoteCounts, getEvent, getUserVote, hasEventStarted, getAllUserProfiles } from '../../../firebase/services_firestore2';
+import { castVote, listenVoteCounts, getEvent, getUserVote, hasEventStarted } from '../../../firebase/services_firestore2';
+import { useConnectedUsers } from '../../hooks/useConnectedUsers';
 import { VoteStatus } from '../../../firebase/types_index';
 import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
 import { YStack, XStack, Text, Paragraph, H3, Card, Button, ScrollView, Separator, Spinner, Theme } from 'tamagui';
@@ -22,8 +23,8 @@ export default function EventView() {
   const params = useLocalSearchParams();
   const eventId = params.eventId as string; // Use string for Firestore
   const { user } = useAuth0();
-  const userId = user?.sub || 'default-user'; 
-  
+  const userId = user?.sub || 'default-user';
+
   // Component state
   const [eventData, setEventData] = useState<any>(null);
   const [currentFilter, setCurrentFilter] = useState<VoteFilter>('all');
@@ -45,13 +46,16 @@ export default function EventView() {
   const [votersByStatus, setVotersByStatus] = useState<any>({ going: [], maybe: [], not: [] });
   const [allVotersWithStatus, setAllVotersWithStatus] = useState<any[]>([]);
 
+  // Fetch connected users for voter list
+  const { connectedUsers } = useConnectedUsers(userId);
+
   /**
    * Fetches event data and validates access
    * Loads event information and checks user permissions
    */
   useEffect(() => {
     if (!eventId) return;
-    
+
     const fetchEventData = async () => {
       try {
         setIsLoading(true);
@@ -75,7 +79,7 @@ export default function EventView() {
         setIsLoading(false);
       }
     };
-    
+
     fetchEventData();
   }, [eventId]);
 
@@ -97,7 +101,7 @@ export default function EventView() {
    */
   useEffect(() => {
     if (!eventId || !userId) return;
-    
+
     const fetchUserVote = async () => {
       try {
         const previousVote = await getUserVote(eventId, userId);
@@ -111,7 +115,7 @@ export default function EventView() {
         console.error('Error fetching user vote:', error);
       }
     };
-    
+
     fetchUserVote();
   }, [eventId, userId]);
 
@@ -125,15 +129,15 @@ export default function EventView() {
       setCountdown('No voting');
       return;
     }
-    
+
     const votingCutoff = new Date(eventData.CutoffDate.toDate ? eventData.CutoffDate.toDate() : eventData.CutoffDate);
-    
+
     const updateCountdown = () => {
       const now = new Date();
       const timeLeft = votingCutoff.getTime() - now.getTime();
       const eventStarted = hasEventStarted(eventData.EventDate);
       const startedEarly = eventData.StartedEarly === true;
-      
+
       // Close voting if cutoff time has passed OR event has started OR started early
       if (timeLeft <= 0 || eventStarted || startedEarly) {
         setIsVotingOpen(false);
@@ -146,29 +150,29 @@ export default function EventView() {
         }
         return;
       }
-      
+
       setIsVotingOpen(true);
-    
+
       const days = Math.floor(timeLeft / (1000 * 60 * 60 * 24));
       const hours = Math.floor((timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
       const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-      
+
       let countdownText = 'Closes in ';
       if (days > 0) {
         countdownText += `${days} day${days > 1 ? 's' : ''}, `;
       }
       countdownText += `${hours} hour${hours > 1 ? 's' : ''}`;
-      
+
       if (days === 0 && hours < 2) {
         countdownText += `, ${minutes} minute${minutes > 1 ? 's' : ''}`;
       }
-      
+
       setCountdown(countdownText);
     };
-    
+
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
-    
+
     return () => clearInterval(interval);
   }, [eventData]);
 
@@ -183,7 +187,7 @@ export default function EventView() {
     const loadVoters = async () => {
       try {
         setVotersLoading(true);
-        const users = await getAllUserProfiles();
+        const users = connectedUsers;
         const results = await Promise.all(
           users.map(async (u: any) => {
             try {
@@ -207,7 +211,7 @@ export default function EventView() {
 
     loadVoters();
     return () => { cancelled = true; };
-  }, [eventId, voteCounts.going, voteCounts.maybe, voteCounts.not]);
+  }, [eventId, voteCounts.going, voteCounts.maybe, voteCounts.not, connectedUsers]);
 
   /**
    * Handles user voting with validation and error handling
@@ -219,21 +223,21 @@ export default function EventView() {
       Alert.alert('Voting Disabled', 'Voting is not enabled for this event.');
       return;
     }
-    
+
     if (!isVotingOpen) {
       Alert.alert('Voting Closed', 'Voting has closed for this event.');
       return;
     }
-    
+
     if (!eventId) {
       Alert.alert('Error', 'Event ID is missing.');
       return;
     }
-    
+
     if (isVoting) {
       return; // Prevent double-voting
     }
-    
+
     try {
       setIsVoting(true);
       await castVote(eventId, vote, userId);
@@ -245,7 +249,7 @@ export default function EventView() {
       ]).start();
     } catch (error: any) {
       console.error('Error casting vote:', error);
-      
+
       // Check if it's a time conflict error
       if (error.message && error.message.includes('conflicts with')) {
         Alert.alert('Time Conflict', error.message);
@@ -283,7 +287,7 @@ export default function EventView() {
                 StartedEarly: true,
                 StartedEarlyAt: new Date()
               });
-              
+
               // Refresh the event data by refetching
               const data = await getEvent(eventId);
               if (data) {
@@ -291,7 +295,7 @@ export default function EventView() {
                 setIsAdmin(data.CreatorID === userId);
                 setEventStarted(hasEventStarted(data.EventDate));
               }
-              
+
               Alert.alert('Success', 'Event started! Voting is now closed and attendance tracking is available.', [
                 {
                   text: 'OK',
@@ -423,33 +427,33 @@ export default function EventView() {
                 <YStack flex={1}>
                   <Text color="$color10">Date & Time</Text>
                   <Text color="$color" fontWeight="700">
-                    {eventData?.EventDate ? 
-                      (eventData.EventDate instanceof Date ? 
-                        eventData.EventDate.toDateString() : 
+                    {eventData?.EventDate ?
+                      (eventData.EventDate instanceof Date ?
+                        eventData.EventDate.toDateString() :
                         new Date(eventData.EventDate.seconds ? eventData.EventDate.seconds * 1000 : eventData.EventDate).toDateString()
                       ) : 'Date not set'
                     }
                   </Text>
                   <Text color="$color10">
-                    {eventData?.EventDate ? 
-                      (eventData.EventDate instanceof Date ? 
-                        eventData.EventDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 
+                    {eventData?.EventDate ?
+                      (eventData.EventDate instanceof Date ?
+                        eventData.EventDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) :
                         new Date(eventData.EventDate.seconds ? eventData.EventDate.seconds * 1000 : eventData.EventDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                       ) : 'Time not set'
                     }
                   </Text>
                 </YStack>
               </XStack>
-              
+
               <XStack space="$3" verticalAlign="start">
                 <Text>📍</Text>
                 <YStack flex={1}>
                   <Text color="$color10">Location</Text>
                   <Text color="$color" fontWeight="700">
-                    {typeof eventData?.Location === 'string' ? eventData.Location : 
-                     (eventData?.Location && typeof eventData.Location === 'object' && eventData.Location._lat && eventData.Location._long) 
-                       ? `${eventData.Location._lat.toFixed(6)}, ${eventData.Location._long.toFixed(6)}` 
-                       : 'Location not specified'
+                    {typeof eventData?.Location === 'string' ? eventData.Location :
+                      (eventData?.Location && typeof eventData.Location === 'object' && eventData.Location._lat && eventData.Location._long)
+                        ? `${eventData.Location._lat.toFixed(6)}, ${eventData.Location._long.toFixed(6)}`
+                        : 'Location not specified'
                     }
                   </Text>
                 </YStack>
@@ -467,7 +471,7 @@ export default function EventView() {
                   </YStack>
                 </XStack>
               )}
-              
+
               <XStack space="$3" verticalAlign="start">
                 <Text>⏰</Text>
                 <YStack flex={1}>
@@ -476,9 +480,9 @@ export default function EventView() {
                   </Text>
                   <Text color="$color" fontWeight="700">
                     {eventData?.VotingEnabled === false ? 'Voting Disabled' :
-                      eventData?.CutoffDate ? 
-                        (eventData.CutoffDate instanceof Date ? 
-                          eventData.CutoffDate.toDateString() : 
+                      eventData?.CutoffDate ?
+                        (eventData.CutoffDate instanceof Date ?
+                          eventData.CutoffDate.toDateString() :
                           new Date(eventData.CutoffDate.seconds ? eventData.CutoffDate.seconds * 1000 : eventData.CutoffDate).toDateString()
                         ) : 'Date not set'
                     }
@@ -495,7 +499,7 @@ export default function EventView() {
           <Card p="$4" bg="$color1" borderColor="$borderColor" borderWidth={1} borderRadius="$4">
             <YStack space="$3">
               <Text color="$color" fontWeight="800" fontSize={20}>Will you be attending?</Text>
-              
+
               {eventData?.VotingEnabled === false ? (
                 <YStack space="$2">
                   <Card p="$3" bg="$color2" borderColor="$borderColor" borderWidth={1}>
@@ -515,7 +519,7 @@ export default function EventView() {
                       <Text color="$color10">Submitting your vote...</Text>
                     )}
                   </XStack>
-                  
+
                   <XStack space="$2">
                     <Button
                       flex={1}
@@ -526,7 +530,7 @@ export default function EventView() {
                       minH="$8"
                       disabled={!isVotingOpen || isVoting}
                       onPress={() => handleVote('going')}
-                      style={{  borderRadius: 10 }}
+                      style={{ borderRadius: 10 }}
                     >
                       <YStack width="100%" verticalAlign="center" space="$1">
                         <Text color="$color1">✓</Text>
@@ -543,7 +547,7 @@ export default function EventView() {
                       minH="$8"
                       disabled={!isVotingOpen || isVoting}
                       onPress={() => handleVote('maybe')}
-                      style={{  borderRadius: 10 }}
+                      style={{ borderRadius: 10 }}
                     >
                       <YStack width="100%" verticalAlign="center" space="$1">
                         <Text color="$color1">?</Text>
@@ -560,7 +564,7 @@ export default function EventView() {
                       minH="$8"
                       disabled={!isVotingOpen || isVoting}
                       onPress={() => handleVote('not')}
-                      style={{  borderRadius: 10 }}
+                      style={{ borderRadius: 10 }}
                     >
                       <YStack width="100%" verticalAlign="center" space="$1">
                         <Text color="$color1">✗</Text>
@@ -585,41 +589,41 @@ export default function EventView() {
                   <Text color="$color" fontWeight="800" fontSize={20}>Vote Summary</Text>
                   <Text color="$color10">{getTotalResponses()} total responses</Text>
                 </XStack>
-               
+
                 <XStack space="$2">
-                  <Button style={{flex: 1}} minH="$6" minW="$5" bg={currentFilter === 'all' ? ('$color9' ) : ('$color2')} color={currentFilter === 'all' ? ('$color1') : ('$color' )} onPress={() => setCurrentFilter('all')}>
+                  <Button style={{ flex: 1 }} minH="$6" minW="$5" bg={currentFilter === 'all' ? ('$color9') : ('$color2')} color={currentFilter === 'all' ? ('$color1') : ('$color')} onPress={() => setCurrentFilter('all')}>
                     <YStack width="100%" verticalAlign="center">
                       <Text color={currentFilter === 'all' ? '$color1' : '$color'}>All</Text>
                       <Text color={currentFilter === 'all' ? '$color1' : '$color10'}>{getTotalResponses()}</Text>
                     </YStack>
                   </Button>
-                  
+
                   <Button flex={1} minH="$6" minW="$5" bg={currentFilter === 'going' ? ('$color9' as any) : ('$color2' as any)} color={currentFilter === 'going' ? ('$color1' as any) : ('$color' as any)} onPress={() => setCurrentFilter('going')}>
                     <YStack width="100%" verticalAlign="center">
                       <Text color={currentFilter === 'going' ? '$color1' : '$color'}>Going</Text>
                       <Text color={currentFilter === 'going' ? '$color1' : '$color10'}>{voteCounts.going}</Text>
                     </YStack>
                   </Button>
-                 </XStack>
-                 <XStack space="$2">
-                  <Button flex={1} minH="$6" minW="$7"bg={currentFilter === 'maybe' ? ('$color9' as any) : ('$color2' as any)} color={currentFilter === 'maybe' ? ('$color1' as any) : ('$color' as any)} onPress={() => setCurrentFilter('maybe')}>
+                </XStack>
+                <XStack space="$2">
+                  <Button flex={1} minH="$6" minW="$7" bg={currentFilter === 'maybe' ? ('$color9' as any) : ('$color2' as any)} color={currentFilter === 'maybe' ? ('$color1' as any) : ('$color' as any)} onPress={() => setCurrentFilter('maybe')}>
                     <YStack width="100%" verticalAlign="center">
                       <Text color={currentFilter === 'maybe' ? '$color1' : '$color'}>Maybe</Text>
                       <Text color={currentFilter === 'maybe' ? '$color1' : '$color10'}>{voteCounts.maybe}</Text>
                     </YStack>
                   </Button>
-                  
-                  <Button flex={1} minH="$6" minW="$7"bg={currentFilter === 'not' ? ('$color9' as any) : ('$color2' as any)} color={currentFilter === 'not' ? ('$color1' as any) : ('$color' as any)} onPress={() => setCurrentFilter('not')}>
+
+                  <Button flex={1} minH="$6" minW="$7" bg={currentFilter === 'not' ? ('$color9' as any) : ('$color2' as any)} color={currentFilter === 'not' ? ('$color1' as any) : ('$color' as any)} onPress={() => setCurrentFilter('not')}>
                     <YStack width="100%" verticalAlign="center">
                       <Text color={currentFilter === 'not' ? '$color1' : '$color'}>Not Going</Text>
                       <Text color={currentFilter === 'not' ? '$color1' : '$color10'}>{voteCounts.not}</Text>
                     </YStack>
                   </Button>
                 </XStack>
-                
+
                 <Separator />
                 <Text color="$color10" style={{ textAlign: 'center' }}>
-                  {currentFilter === 'all' 
+                  {currentFilter === 'all'
                     ? `Total responses: ${getTotalResponses()}`
                     : `${currentFilter.charAt(0).toUpperCase() + currentFilter.slice(1)}: ${getFilteredCount()}`
                   }
@@ -638,7 +642,7 @@ export default function EventView() {
                         <Text color="$color10">No voters yet.</Text>
                       ) : (
                         allVotersWithStatus.map((r: any) => (
-                          <XStack key={r.user.id} justify="space-between" p="$2" bg="$color2" borderColor="$borderColor" borderWidth={1} style={{borderRadius: 10}}>
+                          <XStack key={r.user.id} justify="space-between" p="$2" bg="$color2" borderColor="$borderColor" borderWidth={1} style={{ borderRadius: 10 }}>
                             <Text color="$color">{r.user.Name || r.user.Email || r.user.id}</Text>
                             <Text color="$color10">{r.vote === 'going' ? 'Going' : r.vote === 'maybe' ? 'Maybe' : 'Not Going'}</Text>
                           </XStack>
@@ -678,9 +682,9 @@ export default function EventView() {
           {/* Event Management Section - Admin only, at the bottom */}
           {isAdmin && (
             <Theme name="earthy-sport-light">
-              <Card 
-                backgroundColor="$color2" 
-                padding="$4" 
+              <Card
+                backgroundColor="$color2"
+                padding="$4"
                 borderRadius="$4"
                 borderWidth={1}
                 borderColor="$borderColor"
@@ -689,7 +693,7 @@ export default function EventView() {
                   <H3 color="$color" fontWeight="600">
                     Event Management
                   </H3>
-                  
+
                   {/* Single button that changes based on event status */}
                   {(eventStarted || eventData?.StartedEarly === true) ? (
                     <Button

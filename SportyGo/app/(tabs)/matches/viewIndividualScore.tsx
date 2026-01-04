@@ -25,12 +25,14 @@ import type { newMatchHistory } from "@/firebase/types_index";
 import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
 
 // Lightweight profile model used to render names + avatars alongside scores.
+// Lightweight profile model used to render names + avatars alongside scores.
 type PlayerProfile = {
   id: string;
   name: string;
   photoUrl: string | null;
 };
 
+// Helper to sanitize player IDs, ensuring they are non-empty strings.
 const sanitizePlayerId = (value: any): string | null => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -38,12 +40,14 @@ const sanitizePlayerId = (value: any): string | null => {
 };
 
 // Generates initials for avatar fallbacks (first + last letter where available).
+// Generates initials for avatar fallbacks (first + last letter where available).
 function getInitials(name: string) {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+// Helper to robustly parse various date formats into a Date object.
 const parseToDate = (raw: Date | string | any): Date | null => {
   if (raw instanceof Date) {
     return Number.isNaN(raw.getTime()) ? null : raw;
@@ -63,23 +67,24 @@ const parseToDate = (raw: Date | string | any): Date | null => {
   return null;
 };
 
+// Helper to format a date for display.
 const formatDate = (date: Date | string | any) => {
   const dateObj = parseToDate(date);
   if (!dateObj) return "Invalid Date";
   const hasTime = dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0;
   return hasTime
     ? dateObj.toLocaleString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
     : dateObj.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
 };
 
 const WINNER_ACCENT_COLOR = "#047857";
@@ -93,6 +98,8 @@ type TeamCardProps = {
   tied?: boolean;
 };
 
+// Helper to determine the display name for a player.
+// Prioritizes profile name, then fallback name, then fallback ID, then "Player".
 function getPlayerDisplayName(
   profile: PlayerProfile | undefined,
   fallbackName?: string,
@@ -104,11 +111,20 @@ function getPlayerDisplayName(
   return "Player";
 }
 
+/**
+ * TeamCard Component
+ * 
+ * Displays a card for a team, showing their score, status (Winner/Runner-up),
+ * and avatars for the players.
+ */
 function TeamCard({ nameString, profiles, fallbackIds, score, winner, tied = false }: TeamCardProps) {
+  // Split team name string to get individual names if available
   const nameParts = nameString
     ? nameString.split("&").map((part) => part.trim()).filter(Boolean)
     : [];
   const cleanedFallbackIds = fallbackIds?.map((value) => value ?? undefined) ?? [];
+
+  // Determine how many player slots to show (max 2)
   const slotCount = Math.min(
     2,
     Math.max(
@@ -132,6 +148,7 @@ function TeamCard({ nameString, profiles, fallbackIds, score, winner, tied = fal
       borderColor={winner ? WINNER_ACCENT_COLOR : "$borderColor"}
     >
       <YStack space="$4" items="center">
+        {/* Player Avatars */}
         <XStack space="$4" items="center" justify="center">
           {slots.map((index) => {
             const profile = profiles[index];
@@ -167,6 +184,8 @@ function TeamCard({ nameString, profiles, fallbackIds, score, winner, tied = fal
             );
           })}
         </XStack>
+
+        {/* Team Name and Status */}
         <YStack space="$3" items="center" width="100%">
           <Text
             fontSize="$5"
@@ -181,6 +200,8 @@ function TeamCard({ nameString, profiles, fallbackIds, score, winner, tied = fal
             {statusLabel}
           </Text>
         </YStack>
+
+        {/* Score */}
         <Text fontSize="$6" fontWeight="900" color="$color" style={{ textAlign: "center" }}>
           {score}
         </Text>
@@ -189,16 +210,27 @@ function TeamCard({ nameString, profiles, fallbackIds, score, winner, tied = fal
   );
 }
 
+/**
+ * ViewIndividualScore Component
+ * 
+ * The main screen for viewing details of a specific match.
+ * Fetches match data and enriches it with user profiles for better display.
+ */
 export default function ViewIndividualScore() {
   const router = useRouter();
   const { matchId } = useLocalSearchParams<{ matchId: string }>();
+
+  // --- State ---
   const [loading, setLoading] = useState(true);
   const [match, setMatch] = useState<newMatchHistory | undefined>(undefined);
+
+  // Derived team data
   const [team1Names, setTeam1Names] = useState<string>("");
   const [team2Names, setTeam2Names] = useState<string>("");
   const [team1Profiles, setTeam1Profiles] = useState<PlayerProfile[]>([]);
   const [team2Profiles, setTeam2Profiles] = useState<PlayerProfile[]>([]);
 
+  // Fetches match data and resolves player profiles.
   const loadMatch = useCallback(
     async ({ silent }: { silent?: boolean } = {}) => {
       if (!matchId) {
@@ -222,6 +254,7 @@ export default function ViewIndividualScore() {
         setMatch(data);
 
         if (data) {
+          // Extract valid player IDs
           const team1Ids = [sanitizePlayerId(data.team1[0]), sanitizePlayerId(data.team1[1])].filter(
             (id): id is string => !!id
           );
@@ -229,6 +262,7 @@ export default function ViewIndividualScore() {
             (id): id is string => !!id
           );
 
+          // Helper to fetch profiles for a list of IDs
           const fetchProfiles = async (ids: string[]) =>
             Promise.all(
               ids.map(async (id) => {
@@ -251,6 +285,7 @@ export default function ViewIndividualScore() {
           setTeam1Profiles(team1Data);
           setTeam2Profiles(team2Data);
 
+          // Helper to construct display names
           const fallbackNames = (profiles: PlayerProfile[], ids: string[]) => {
             if (profiles.length > 0) {
               return profiles.map((profile) => profile.name).join(" & ");
@@ -351,9 +386,8 @@ export default function ViewIndividualScore() {
   const team1Label = team1Names && team1Names.trim() ? team1Names : "Team 1";
   const team2Label = team2Names && team2Names.trim() ? team2Names : "Team 2";
   const outcomeText = isTie ? "Match tied" : `${isTeam1Winner ? team1Label : team2Label} won`;
-  const outcomeSubtext = `Final score ${team1Score}-${team2Score}${
-    isTie ? "" : ` - ${scoreDiff} point${scoreDiff === 1 ? "" : "s"} difference`
-  }`;
+  const outcomeSubtext = `Final score ${team1Score}-${team2Score}${isTie ? "" : ` - ${scoreDiff} point${scoreDiff === 1 ? "" : "s"} difference`
+    }`;
 
   // Convenience aliases so the JSX below reads nicely.
   const team1FallbackIds = [

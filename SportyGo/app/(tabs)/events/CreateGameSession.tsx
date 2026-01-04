@@ -10,7 +10,8 @@ import { Alert, Platform } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router } from 'expo-router';
-import { createEvent, getUserGroups, getAllUserProfiles } from '../../../firebase/services_firestore2';
+import { createEvent, getUserGroups } from '../../../firebase/services_firestore2';
+import { useConnectedUsers } from '../../hooks/useConnectedUsers';
 import { GroupDoc, UserDoc } from '../../../firebase/types_index';
 import { useAuth0 } from 'react-native-auth0';
 import { YStack, XStack, Button, Input, Label, Paragraph, H2, Text, Card, ScrollView } from 'tamagui';
@@ -83,34 +84,36 @@ export default function CreateGameSession() {
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Fetch connected users
+  const { connectedUsers, loading: connectedUsersLoading } = useConnectedUsers(userId);
+
+  // Sync connected users to local state
+  useEffect(() => {
+    setUsers(connectedUsers);
+    setLoadingUsers(connectedUsersLoading);
+  }, [connectedUsers, connectedUsersLoading]);
+
   /**
-   * Fetches user groups and profiles on component mount
-   * Loads data needed for group and participant selection
+   * Fetches user groups on component mount
    */
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoadingGroups(true);
-        setLoadingUsers(true);
-        
-        const [fetchedGroups, fetchedUsers] = await Promise.all([
-          getUserGroups(userId),
-          getAllUserProfiles()
-        ]);
-        
+
+        const fetchedGroups = await getUserGroups(userId);
+
         setGroups(fetchedGroups);
-        setUsers(fetchedUsers);
         setGroupsLoaded(true);
       } catch (error) {
-        Alert.alert('Error', 'Failed to load groups and users. Becasue of ' + error);
+        Alert.alert('Error', 'Failed to load groups. Becasue of ' + error);
       } finally {
         setLoadingGroups(false);
-        setLoadingUsers(false);
       }
     };
 
     fetchData();
-  }, []);
+  }, [userId]);
 
   // Clear exclusions whenever the selected group changes
   useEffect(() => {
@@ -124,32 +127,32 @@ export default function CreateGameSession() {
    */
   const validate = (): boolean => {
     const newErrors: FormErrors = {};
-    
+
     // Title validation
     if (!title || title.trim().length < 3) {
       newErrors.title = 'Title must be at least 3 characters';
     }
-    
+
     // Date validation
     if (!gameDate || gameDate < new Date(today.setHours(0, 0, 0, 0))) {
       newErrors.gameDate = 'Game date cannot be in the past';
     }
-    
+
     // Time validation
     if (!gameTime) {
       newErrors.gameTime = 'Game time is required';
     }
-    
+
     // Location validation
     if (!location || location.trim().length < 3) {
       newErrors.location = 'Location must be at least 3 characters';
     }
-    
+
     // Cost validation
     if (totalCost && (isNaN(Number(totalCost)) || Number(totalCost) < 0)) {
       newErrors.totalCost = 'Total cost must be a valid positive number';
     }
-    
+
     // Voting cutoff validation
     if (votingEnabled) {
       if (!votingCutoff) {
@@ -164,18 +167,18 @@ export default function CreateGameSession() {
         // The voting will automatically close when the event starts
       }
     }
-    
+
     // Check minimum participants requirement
     const effectiveGroupId = getEffectiveSelectedGroupId();
     const selectedGroupData = effectiveGroupId ? groups.find(g => g.id === effectiveGroupId) : null;
     const groupMemberCount = selectedGroupData ? selectedGroupData.MemberIds.length : 0;
     const individualCount = selectedParticipants.length + (!effectiveGroupId && !selectedParticipants.includes(userId) ? 1 : 0);
     const totalParticipants = groupMemberCount + individualCount;
-    
+
     if (totalParticipants < 2) {
       newErrors.participants = 'You need at least 2 participants total (group and/or individuals)';
     }
-    
+
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -226,17 +229,17 @@ export default function CreateGameSession() {
    */
   const handleSubmit = async (): Promise<void> => {
     if (!validate()) return;
-    
+
     setLoading(true);
     try {
       // Ensure creator is always included as a participant
       let finalIndividualParticipants = [...selectedParticipants];
-      
+
       // If no group is selected, creator must be in individual participants
       if (!getEffectiveSelectedGroupId() && !finalIndividualParticipants.includes(userId)) {
         finalIndividualParticipants.push(userId);
       }
-      
+
       // Build EventDoc object
       const event = {
         id: '', // Firestore will generate the ID
@@ -381,7 +384,7 @@ export default function CreateGameSession() {
    * @returns {string[]} Array of participant names
    */
   const getSelectedParticipantNames = (): string[] => {
-    return selectedParticipants.map(userId => 
+    return selectedParticipants.map(userId =>
       users.find(u => u.id === userId)?.Name || 'Unknown User'
     );
   };
@@ -394,27 +397,27 @@ export default function CreateGameSession() {
    */
   const getFilteredUsers = (): UserDoc[] => {
     const effectiveGroupId = getEffectiveSelectedGroupId();
-    
+
     // If no group is selected, return empty array
     if (!effectiveGroupId) {
       return [];
     }
-    
+
     // Get the selected group data
     const selectedGroupData = groups.find(g => g.id === effectiveGroupId);
     if (!selectedGroupData) {
       return [];
     }
-    
+
     // Filter users to only include those in the selected group
-    const groupUsers = users.filter(user => 
+    const groupUsers = users.filter(user =>
       selectedGroupData.MemberIds.includes(user.id)
     );
-    
+
     // Apply search filter if there's a search query
     if (!userSearchQuery.trim()) return groupUsers;
-    
-    return groupUsers.filter(user => 
+
+    return groupUsers.filter(user =>
       user.Name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
       user.Email.toLowerCase().includes(userSearchQuery.toLowerCase())
     );
@@ -500,7 +503,7 @@ export default function CreateGameSession() {
   );
 
   return (
-      <SafeAreaWrapper>
+    <SafeAreaWrapper>
       <YStack flex={1} bg="$background">
         <YStack p={20} pb={12}>
           <Text onPress={() => router.back()} color="$color9" fontWeight="600" style={{ fontSize: 16 }} mb={12}>
@@ -538,11 +541,11 @@ export default function CreateGameSession() {
                       placeholder="Enter event title (e.g., 'Weekend Tournament')"
                       autoCapitalize="words"
                       blurOnSubmit={false}
-                       borderColor={errors.title ? "#EF4444" : "$borderColor"}
+                      borderColor={errors.title ? "#EF4444" : "$borderColor"}
                       bg="$color1"
                     />
                     <FieldError message={errors.title} />
-                  </YStack>  
+                  </YStack>
 
                   {/* Game Date */}
                   <YStack mb={12}>
@@ -599,7 +602,7 @@ export default function CreateGameSession() {
                       placeholder="Enter game location"
                       autoCapitalize="words"
                       blurOnSubmit={false}
-                       borderColor={errors.location ? "#EF4444" : "$borderColor"}
+                      borderColor={errors.location ? "#EF4444" : "$borderColor"}
                       bg="$color1"
                     />
                     <FieldError message={errors.location} />
@@ -616,7 +619,7 @@ export default function CreateGameSession() {
                       placeholder="Enter total cost (e.g., 50.00)"
                       keyboardType="numeric"
                       blurOnSubmit={false}
-                       borderColor={errors.totalCost ? "#EF4444" : "$borderColor"}
+                      borderColor={errors.totalCost ? "#EF4444" : "$borderColor"}
                       bg="$color1"
                     />
                     <FieldError message={errors.totalCost} />
@@ -651,24 +654,24 @@ export default function CreateGameSession() {
 
                   {/* Voting Cutoff - Only show if voting is enabled */}
                   {votingEnabled && (
-                  <YStack mb={12}>
+                    <YStack mb={12}>
                       <Label style={{ fontSize: 16, fontWeight: '500' }} mb={4}>
-                      Voting closes on:
-                    </Label>
-                                          <InputLikeButton onPress={() => setShowVotingCutoff(true)}>
+                        Voting closes on:
+                      </Label>
+                      <InputLikeButton onPress={() => setShowVotingCutoff(true)}>
                         {votingCutoff ? votingCutoff.toLocaleDateString() : 'Select date'}
                       </InputLikeButton>
-                    {showVotingCutoff && (
-                      <DateTimePicker
-                        value={votingCutoff}
-                        mode="date"
-                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      {showVotingCutoff && (
+                        <DateTimePicker
+                          value={votingCutoff}
+                          mode="date"
+                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                           minimumDate={new Date(today.setHours(0, 0, 0, 0))}
-                        onChange={onChangeVotingCutoff}
-                      />
-                    )}
-                    <FieldError message={errors.votingCutoff} />
-                  </YStack>
+                          onChange={onChangeVotingCutoff}
+                        />
+                      )}
+                      <FieldError message={errors.votingCutoff} />
+                    </YStack>
                   )}
 
                   {/* Group Selection */}
@@ -682,33 +685,33 @@ export default function CreateGameSession() {
                           Loading your groups...
                         </Text>
                       </YStack>
-                                        ) : (
+                    ) : (
                       <YStack>
-                    <YStack borderWidth={1} borderColor="$borderColor" overflow="hidden" bg="$color1">
-                          <Picker 
-                            selectedValue={selectedGroup ?? NO_GROUP_VALUE} 
-                            onValueChange={handleGroupChange} 
+                        <YStack borderWidth={1} borderColor="$borderColor" overflow="hidden" bg="$color1">
+                          <Picker
+                            selectedValue={selectedGroup ?? NO_GROUP_VALUE}
+                            onValueChange={handleGroupChange}
                             enabled={!loadingGroups && groupsLoaded}
-                            style={{ 
+                            style={{
                               backgroundColor: 'transparent',
                               color: Platform.OS === 'ios' ? '#000' : '#000'
                             }}
                           >
-                            <Picker.Item 
-                              label="No group selected" 
+                            <Picker.Item
+                              label="No group selected"
                               value={NO_GROUP_VALUE}
                               color={Platform.OS === 'ios' ? '#666' : undefined}
                             />
-                        {groups.map((g) => (
-                              <Picker.Item 
-                                key={g.id} 
-                                label={g.Name} 
+                            {groups.map((g) => (
+                              <Picker.Item
+                                key={g.id}
+                                label={g.Name}
                                 value={g.id}
                                 color={Platform.OS === 'ios' ? '#000' : undefined}
                               />
-                        ))}
-                      </Picker>
-                    </YStack>
+                            ))}
+                          </Picker>
+                        </YStack>
                         {getEffectiveSelectedGroupId() && (
                           <Card mt={4} p={8} bg="$color3" borderRadius="$2">
                             <Text fontSize={12} color="$color10">
@@ -722,10 +725,10 @@ export default function CreateGameSession() {
                     )}
                   </YStack>
 
-                                    {/* Individual Participants Selection */}
+                  {/* Individual Participants Selection */}
                   <YStack mb={12}>
                     <Label style={{ fontSize: 16, fontWeight: '500' }} mb={4}>
-                      Individual Participants 
+                      Individual Participants
                     </Label>
                     {!getEffectiveSelectedGroupId() ? (
                       <Card p={16} bg="$color3" borderRadius="$2">
@@ -760,7 +763,7 @@ export default function CreateGameSession() {
                                   borderColor="$color9"
                                   borderRadius="$2"
                                   mb={2}
-                                  
+
                                 >
                                   <Text
                                     fontSize={13}
@@ -778,7 +781,7 @@ export default function CreateGameSession() {
                                   </Text>
                                 </Card>
                               ))}
-                            
+
                             {/* Unselected users below */}
                             {getFilteredUsers()
                               .filter(user => !isUserHighlighted(user.id))
@@ -810,7 +813,7 @@ export default function CreateGameSession() {
                                   </Text>
                                 </Card>
                               ))}
-                            
+
                             {getFilteredUsers().length === 0 && !loadingUsers && (
                               <Card p={16} bg="$color3" borderRadius="$2">
                                 <Text color="$color10" fontSize={14} style={{ textAlign: 'center' }}>
@@ -844,7 +847,7 @@ export default function CreateGameSession() {
                         const groupMemberCount = selectedGroupData ? selectedGroupData.MemberIds.length : 0;
                         const individualCount = selectedParticipants.length + (!effectiveGroupId && !selectedParticipants.includes(userId) ? 1 : 0);
                         const totalParticipants = groupMemberCount + individualCount;
-                        
+
                         return (
                           <>
                             <Text fontSize={14} fontWeight="500" mb={4}>
@@ -917,6 +920,6 @@ export default function CreateGameSession() {
           </YStack>
         )}
       </YStack>
-      </SafeAreaWrapper>
+    </SafeAreaWrapper>
   );
 } 

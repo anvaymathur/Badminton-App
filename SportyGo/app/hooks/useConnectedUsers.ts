@@ -4,9 +4,30 @@ import { UserDoc, EventDoc } from '@/firebase/types_index';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase/index';
 
+/**
+ * Custom hook to fetch users connected to the current user.
+ * 
+ * This hook retrieves a list of users who are "connected" to the provided `userId`.
+ * A connected user is defined as:
+ * - A member of any group the current user belongs to.
+ * - A participant in any event the current user is involved in (as a creator, individual participant, or group member).
+ * 
+ * The hook aggregates unique users from these sources and fetches their profiles.
+ * 
+ * @param userId - The ID of the current user. If undefined, the hook does nothing.
+ * @returns An object containing:
+ * - `connectedUsers`: An array of `UserDoc` objects representing the connected users, sorted by name.
+ * - `loading`: A boolean indicating whether the data is currently being fetched.
+ */
 export function useConnectedUsers(userId: string | undefined) {
     const [connectedUsers, setConnectedUsers] = useState<UserDoc[]>([]);
     const [loading, setLoading] = useState(true);
+
+    const [refreshKey, setRefreshKey] = useState(0);
+
+    const refresh = () => {
+        setRefreshKey(prev => prev + 1);
+    };
 
     useEffect(() => {
         if (!userId) {
@@ -70,7 +91,7 @@ export function useConnectedUsers(userId: string | undefined) {
         };
 
         fetchConnectedUsers();
-    }, [userId]);
+    }, [userId, refreshKey]);
 
-    return { connectedUsers, loading };
+    return { connectedUsers, loading, refresh };
 }

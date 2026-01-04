@@ -6,47 +6,102 @@ import { useCallback, useMemo, useRef, useState } from "react";
 export type FilterPicker = "startDate" | "endDate" | "startTime" | "endTime";
 
 // What the hook hands back to consumers so they can wire up lists, sheets, and pickers with confidence.
+/**
+ * Return type for the `useMatchFilters` hook.
+ * Contains all state and handlers necessary to manage match history filtering.
+ */
 type UseMatchFiltersReturn = {
+  /** The current sort order of the match list ("recent" or "oldest"). */
   sortOrder: "recent" | "oldest";
+  /** Function to update the sort order. */
   setSortOrder: (value: "recent" | "oldest") => void;
+  /** The active result filter ("all", "win", "lose", "tie"). */
   resultFilter: "all" | "win" | "lose" | "tie";
+  /** Function to update the result filter. */
   setResultFilter: (value: "all" | "win" | "lose" | "tie") => void;
+  /** The active start date filter. */
   filterStartDate: Date | null;
+  /** The active end date filter. */
   filterEndDate: Date | null;
+  /** The active start time filter. */
   filterStartTime: Date | null;
+  /** The active end time filter. */
   filterEndTime: Date | null;
+  /** Whether the filter bottom sheet is currently open. */
   filterSheetOpen: boolean;
+  /** Opens the filter bottom sheet. */
   openFilterSheet: () => void;
+  /** Closes the filter bottom sheet. */
   closeFilterSheet: () => void;
+  /** Boolean indicating if any filter (other than default) is currently active. */
   isFilterActive: boolean;
+  /** A human-readable summary string of the active filters. */
   filterSummary: string;
+  /** Pending result filter selection (in the sheet, before applying). */
   pendingResultFilter: "all" | "win" | "lose" | "tie";
+  /** Pending start date selection. */
   pendingStartDate: Date | null;
+  /** Pending end date selection. */
   pendingEndDate: Date | null;
+  /** Pending start time selection. */
   pendingStartTime: Date | null;
+  /** Pending end time selection. */
   pendingEndTime: Date | null;
+  /** Updates the pending result filter. */
   setPendingResultFilter: (value: "all" | "win" | "lose" | "tie") => void;
+  /** Updates the pending start date. */
   setPendingStartDate: (value: Date | null) => void;
+  /** Updates the pending end date. */
   setPendingEndDate: (value: Date | null) => void;
+  /** Updates the pending start time. */
   setPendingStartTime: (value: Date | null) => void;
+  /** Updates the pending end time. */
   setPendingEndTime: (value: Date | null) => void;
+  /** Clears all pending filter selections in the sheet. */
   clearPendingFilters: () => void;
+  /** Applies the pending filters to the active state and closes the sheet. */
   applyFilterChanges: () => void;
+  /** Resets all active and pending filters to their default states. */
   resetFilters: () => void;
+  /** Helper to format a date object as a string (e.g., "Jan 1, 2023"). */
   formatDateOnly: (value: Date | null) => string;
+  /** Helper to format a date object as a time string (e.g., "12:00 PM"). */
   formatTimeOnly: (value: Date | null) => string;
+  /** The currently active picker (if any). */
   activePicker: FilterPicker | null;
+  /** Opens a specific picker (date or time). */
   openPicker: (picker: FilterPicker) => void;
+  /** Handles the closing of the picker dialog. */
   handlePickerDialogClose: (open: boolean) => void;
+  /** Confirms the selection in the picker. */
   handlePickerConfirm: () => void;
+  /** Cancels the selection in the picker. */
   handlePickerCancel: () => void;
+  /** The current value to be displayed in the picker. */
   pickerValue: Date;
+  /** The mode of the picker ("date" or "time"). */
   pickerMode: "date" | "time";
+  /** The maximum allowed date for the picker. */
   pickerMaximumDate?: Date;
+  /** The minimum allowed date for the picker. */
   pickerMinimumDate?: Date;
+  /** Updates the pending value for a specific picker. */
   setPendingValue: (picker: FilterPicker, value: Date | null) => void;
 };
 
+/**
+ * Custom hook to manage match history filtering state.
+ * 
+ * This hook centralizes all logic for filtering matches by result, date, and time.
+ * It handles:
+ * - Active filter state (what filters are currently applied to the list).
+ * - Pending filter state (what the user is selecting in the filter sheet).
+ * - Sort order state.
+ * - Logic for opening/closing the filter sheet and date/time pickers.
+ * - Formatting helpers for displaying filter summaries.
+ * 
+ * @returns A `UseMatchFiltersReturn` object containing all state and handlers.
+ */
 export function useMatchFilters(): UseMatchFiltersReturn {
   // Core filters that drive the list query.
   const [sortOrder, setSortOrder] = useState<"recent" | "oldest">("recent");

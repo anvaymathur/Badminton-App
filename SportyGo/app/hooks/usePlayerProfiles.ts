@@ -6,14 +6,33 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ViewToken, Image } from "react-native";
 import { getUserProfilesByIds } from "@/firebase/services_firestore2";
 
+/**
+ * Represents the display information for a player profile.
+ */
 export type PlayerProfileDisplay = {
+  /** The player's display name. */
   name: string;
+  /** The URL of the player's profile photo, or null if not available. */
   photoUrl?: string | null;
 };
 
 // Reusable storage key so we can hydrate name lookups from disk.
 const PLAYER_NAMES_CACHE_KEY = "playerNames";
 
+/**
+ * Custom hook to manage player profile visibility and data fetching.
+ * 
+ * This hook is designed to work with a `FlatList` of matches. It:
+ * - Tracks which items are currently viewable in the list.
+ * - Prefetches profile data (names and avatars) for players in the viewable items.
+ * - Caches player names in AsyncStorage for instant display on subsequent loads.
+ * - Provides a map of `visiblePlayers` containing rich profile data.
+ * 
+ * @returns An object containing:
+ * - `playerNames`: A map of player IDs to display names (cached).
+ * - `visiblePlayers`: A map of player IDs to `PlayerProfileDisplay` objects (fetched on demand).
+ * - `onViewableItemsChanged`: A callback to be passed to the `FlatList`'s `onViewableItemsChanged` prop.
+ */
 export function usePlayerProfiles() {
   // Cached name lookups let us show player labels even before Firestore responds.
   const [playerNames, setPlayerNames] = useState<Record<string, string>>({});

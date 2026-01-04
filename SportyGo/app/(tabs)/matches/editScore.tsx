@@ -17,26 +17,29 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  getAllUserProfiles,
   getMatchHistoryById,
   updateMatchHistory,
 } from "../../../firebase/services_firestore2";
+import { useConnectedUsers } from "../../hooks/useConnectedUsers";
+import { useAuth0 } from "react-native-auth0";
 import type { newMatchHistory } from "@/firebase/types_index";
 import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
 import { Adapt } from "@tamagui/adapt";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Alert, Platform } from "react-native";
 
+// Represents a selectable player option in the dropdowns.
 type PlayerOption = {
   id: string;
   name: string;
 };
 
+// Represents the state of the match edit form.
 type MatchEditForm = {
   team1Player1: string;
-  team1Player2: string;
+  team1Player2: string; // Empty string if singles
   team2Player1: string;
-  team2Player2: string;
+  team2Player2: string; // Empty string if singles
   team1Score: string;
   team2Score: string;
   matchType: "singles" | "doubles";
@@ -52,12 +55,15 @@ const PLAYER_FIELDS: PlayerField[] = [
   "team2Player2",
 ];
 
+// Helper to sanitize player IDs, ensuring they are non-empty strings.
 const sanitizePlayerId = (value: any): string | null => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
 };
 
+// Helper to robustly parse various date formats into a Date object.
+// Handles Date objects, strings, and Firestore Timestamp objects (with toDate method).
 const parseToDate = (raw: Date | string | any): Date | null => {
   if (raw instanceof Date) {
     return Number.isNaN(raw.getTime()) ? null : raw;
@@ -77,6 +83,8 @@ const parseToDate = (raw: Date | string | any): Date | null => {
   return null;
 };
 
+// Helper to format a date for display.
+// Shows time if non-midnight, otherwise just the date.
 const formatDate = (date: Date | string | any) => {
   const dateObj = parseToDate(date);
   if (!dateObj) return "Invalid Date";
@@ -84,36 +92,54 @@ const formatDate = (date: Date | string | any) => {
     dateObj.getHours() !== 0 || dateObj.getMinutes() !== 0 || dateObj.getSeconds() !== 0;
   return hasTime
     ? dateObj.toLocaleString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
     : dateObj.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
 };
 
+/**
+ * EditScore Component
+ * 
+ * Allows users to edit an existing match record.
+ * Fetches match data by ID, populates a form, and allows updating players, scores, and date.
+ * Handles validation and optimistic UI updates.
+ */
 export default function EditScore() {
   const router = useRouter();
   const { matchId } = useLocalSearchParams<{ matchId: string }>();
+  const { user } = useAuth0();
 
-  const [loading, setLoading] = useState(true);
-  const [match, setMatch] = useState<newMatchHistory | null>(null);
-  const [form, setForm] = useState<MatchEditForm | null>(null);
+  // --- State ---
+  const [loading, setLoading] = useState(true); // Loading state for initial match fetch
+  const [match, setMatch] = useState<newMatchHistory | null>(null); // Original match data
+  const [form, setForm] = useState<MatchEditForm | null>(null); // Current form state
+
+  // Player selection options
   const [playerOptions, setPlayerOptions] = useState<PlayerOption[]>([]);
   const [playerOptionsLoading, setPlayerOptionsLoading] = useState(true);
   const [playerOptionsError, setPlayerOptionsError] = useState<string | null>(null);
+
+  // UI feedback
   const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Date picker state
   const [draftDate, setDraftDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+
+  // Ref to track initial form state for "unsaved changes" detection
   const initialFormRef = useRef<MatchEditForm | null>(null);
 
+  // Fetch match details on mount or when matchId changes.
   useEffect(() => {
     const fetchMatch = async () => {
       if (!matchId) {
@@ -135,8 +161,10 @@ export default function EditScore() {
 
         setMatch(data);
 
+        // Normalize data for the form
         const normalizedDate = parseToDate(data.date) ?? new Date();
         const toFormValue = (value: any) => sanitizePlayerId(value) ?? "";
+        // Infer match type based on presence of second players
         const inferredType =
           toFormValue(data.team1[1]) || toFormValue(data.team2[1]) ? "doubles" : "singles";
 
@@ -171,28 +199,29 @@ export default function EditScore() {
     fetchMatch();
   }, [matchId]);
 
-  useEffect(() => {
-    const fetchPlayers = async () => {
-      setPlayerOptionsLoading(true);
-      setPlayerOptionsError(null);
-      try {
-        const players = await getAllUserProfiles();
-        const options = players
-          .map((player) => ({
-            id: player.id,
-            name: player.Name?.trim() || player.id,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-        setPlayerOptions(options);
-      } catch {
-        setPlayerOptionsError("Couldn't load the player directory. Pull to retry.");
-      } finally {
-        setPlayerOptionsLoading(false);
-      }
-    };
+  // Fetch connected users to populate player options
+  const { connectedUsers, loading: connectedUsersLoading, refresh: refreshConnectedUsers } = useConnectedUsers(user?.sub);
 
-    fetchPlayers();
-  }, []);
+  useEffect(() => {
+    if (connectedUsersLoading) {
+      setPlayerOptionsLoading(true);
+      return;
+    }
+
+    try {
+      const options = connectedUsers
+        .map((player) => ({
+          id: player.id,
+          name: player.Name?.trim() || player.id,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+      setPlayerOptions(options);
+      setPlayerOptionsLoading(false);
+    } catch {
+      setPlayerOptionsError("Couldn't load the player directory. Pull to retry.");
+      setPlayerOptionsLoading(false);
+    }
+  }, [connectedUsers, connectedUsersLoading]);
 
   useEffect(() => {
     if ((showDatePicker || showTimePicker) && form) {
@@ -200,6 +229,8 @@ export default function EditScore() {
     }
   }, [showDatePicker, showTimePicker, form]);
 
+  // Memoized list of player options.
+  // Merges fetched players with any players currently in the form (in case they aren't in the fetched list).
   const mergedPlayerOptions = useMemo(() => {
     const optionMap = new Map<string, string>();
     playerOptions.forEach((option) => {
@@ -244,6 +275,7 @@ export default function EditScore() {
     [playerNameMap]
   );
 
+  // Filter options for a specific field to prevent selecting the same player multiple times.
   const optionsForField = useCallback(
     (field: PlayerField) => {
       if (!form) return mergedPlayerOptions;
@@ -341,6 +373,7 @@ export default function EditScore() {
     setShowTimePicker(false);
   }, [draftDate]);
 
+  // Saves the edited match data to Firestore.
   const handleSave = useCallback(async () => {
     if (!form || !matchId) return;
 
@@ -350,6 +383,7 @@ export default function EditScore() {
       return;
     }
 
+    // Validate player selections
     const primaryTeam1 = sanitizePlayerId(form.team1Player1);
     const primaryTeam2 = sanitizePlayerId(form.team2Player1);
     if (!primaryTeam1 || !primaryTeam2) {
@@ -365,6 +399,7 @@ export default function EditScore() {
       return;
     }
 
+    // Check for duplicate players
     const playerIds = [
       primaryTeam1,
       primaryTeam2,
@@ -376,6 +411,7 @@ export default function EditScore() {
       return;
     }
 
+    // Validate scores
     const team1ScoreNumber = parseInt(form.team1Score || "0", 10);
     const team2ScoreNumber = parseInt(form.team2Score || "0", 10);
     const safeTeam1Score = Number.isNaN(team1ScoreNumber)
@@ -417,6 +453,7 @@ export default function EditScore() {
       });
 
       setSaving(false);
+      // Navigate back to the individual score view
       router.replace({
         pathname: "/(tabs)/matches/viewIndividualScore",
         params: { matchId: docId },
@@ -522,22 +559,7 @@ export default function EditScore() {
                     onPress={() => {
                       setPlayerOptionsError(null);
                       setPlayerOptionsLoading(true);
-                      getAllUserProfiles()
-                        .then((players) => {
-                          const options = players
-                            .map((player) => ({
-                              id: player.id,
-                              name: player.Name?.trim() || player.id,
-                            }))
-                            .sort((a, b) =>
-                              a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-                            );
-                          setPlayerOptions(options);
-                        })
-                        .catch(() => {
-                          setPlayerOptionsError("Couldn't load the player directory. Try again.");
-                        })
-                        .finally(() => setPlayerOptionsLoading(false));
+                      refreshConnectedUsers();
                     }}
                   >
                     Retry
@@ -830,18 +852,18 @@ export default function EditScore() {
         </ScrollView>
       </View>
 
-       <Sheet
-         modal
-         open={showDatePicker}
-         onOpenChange={(open: boolean) => {
-           setShowDatePicker(open);
-           if (!open && form) {
-             setDraftDate(form.date);
-           }
-         }}
-         snapPoints={[50]}
-         dismissOnSnapToBottom
-       >
+      <Sheet
+        modal
+        open={showDatePicker}
+        onOpenChange={(open: boolean) => {
+          setShowDatePicker(open);
+          if (!open && form) {
+            setDraftDate(form.date);
+          }
+        }}
+        snapPoints={[50]}
+        dismissOnSnapToBottom
+      >
         <Sheet.Overlay opacity={0.25} />
         <Sheet.Handle />
         <Sheet.Frame p="$4" bg="$background">
@@ -868,18 +890,18 @@ export default function EditScore() {
         </Sheet.Frame>
       </Sheet>
 
-       <Sheet
-         modal
-         open={showTimePicker}
-         onOpenChange={(open: boolean) => {
-           setShowTimePicker(open);
-           if (!open && form) {
-             setDraftDate(form.date);
-           }
-         }}
-         snapPoints={[50]}
-         dismissOnSnapToBottom
-       >
+      <Sheet
+        modal
+        open={showTimePicker}
+        onOpenChange={(open: boolean) => {
+          setShowTimePicker(open);
+          if (!open && form) {
+            setDraftDate(form.date);
+          }
+        }}
+        snapPoints={[50]}
+        dismissOnSnapToBottom
+      >
         <Sheet.Overlay opacity={0.25} />
         <Sheet.Handle />
         <Sheet.Frame p="$4" bg="$background">

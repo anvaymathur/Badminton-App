@@ -32,6 +32,18 @@ import { UserContext } from '../../components/userContext';
 import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
 
 
+/**
+ * PlayerPicker Component
+ * 
+ * A custom dropdown component for selecting players.
+ * It uses a Sheet component to present a list of selectable items (players) in a modal-like view.
+ * 
+ * @param value - The currently selected value (player name).
+ * @param onValueChange - Callback function triggered when a new value is selected.
+ * @param items - Array of strings representing the list of players to choose from.
+ * @param placeholder - Text to display when no value is selected.
+ * @param label - Label for the picker sheet header.
+ */
 function PlayerPicker({ value, onValueChange, items, placeholder, label }: { value: string, onValueChange: (val: string) => void, items: string[], placeholder: string, label: string }) {
   const [open, setOpen] = useState(false);
 
@@ -83,23 +95,43 @@ function PlayerPicker({ value, onValueChange, items, placeholder, label }: { val
   );
 }
 
+/**
+ * AddScore Component
+ * 
+ * The main component for the "Add Match Score" wizard.
+ * It guides the user through a multi-step process to record match results:
+ * 1. Select Players: Choose participants for the match (Singles or Doubles).
+ * 2. Game Score: Enter the final score for the match.
+ * 3. Match Setup: Specify the date, time, and optional tournament name.
+ * 
+ * Data is validated at each step and finally persisted to Firestore.
+ */
 export default function AddScore() {
   const router = useRouter();
-  // Score inputs for the user's team and their opponents.
+  // --- State Management ---
+
+  // Score inputs for the user's team (Team 1) and their opponents (Team 2).
   const [yourScore, setYourScore] = useState("0");
   const [opponentScore, setOpponentScore] = useState("0");
-  // Match context captured throughout the wizard flow.
-  const [matchType, setMatchType] = useState("singles");
-  const [date, setDate] = useState<Date>(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
-  const [tournament, setTournament] = useState("");
-  const [userName, setUserName] = useState("");
-  const [userID, setUserID] = useState("");
-  const [yourPlayer2, setYourPlayer2] = useState("");
-  const [opponentPlayer1, setOpponentPlayer1] = useState("");
-  const [opponentPlayer2, setOpponentPlayer2] = useState("");
-  const [currentStep, setCurrentStep] = useState(0);
+
+  // Match configuration and metadata.
+  const [matchType, setMatchType] = useState("singles"); // 'singles' or 'doubles'
+  const [date, setDate] = useState<Date>(new Date()); // Final confirmed date/time
+  const [showDatePicker, setShowDatePicker] = useState(false); // Controls visibility of date picker modal
+  const [showTimePicker, setShowTimePicker] = useState(false); // Controls visibility of time picker modal
+  const [tournament, setTournament] = useState(""); // Optional tournament name
+
+  // Player information.
+  const [userName, setUserName] = useState(""); // Current user's name (Team 1 Player 1)
+  const [userID, setUserID] = useState(""); // Current user's ID
+  const [yourPlayer2, setYourPlayer2] = useState(""); // Team 1 Player 2 (for doubles)
+  const [opponentPlayer1, setOpponentPlayer1] = useState(""); // Team 2 Player 1
+  const [opponentPlayer2, setOpponentPlayer2] = useState(""); // Team 2 Player 2 (for doubles)
+
+  // Wizard navigation state.
+  const [currentStep, setCurrentStep] = useState(0); // 0: Players, 1: Score, 2: Setup
+
+  // Temporary date state for the picker before confirmation.
   const [draftDate, setDraftDate] = useState<Date>(new Date(date));
 
   const { user } = useAuth0()
@@ -117,6 +149,12 @@ export default function AddScore() {
   ];
   const goToPreviousStep = () => setCurrentStep((prev) => Math.max(prev - 1, 0));
   // Guard each step to ensure the user fills required fields before progressing.
+  /**
+   * Validates the current step's data before allowing progression.
+   * 
+   * @param stepIndex - The index of the step to validate.
+   * @returns true if valid, false otherwise (with an alert explaining the error).
+   */
   const validateStep = (stepIndex: number) => {
     if (stepIndex === 0) {
       // Step 1: enforce valid player selections with no duplicates and required opponents.
@@ -203,6 +241,10 @@ export default function AddScore() {
   const [isYourScoreFocused, setIsYourScoreFocused] = useState(false);
   const [isOpponentScoreFocused, setIsOpponentScoreFocused] = useState(false);
 
+  // --- Effects ---
+
+  // Effect to initialize the user's name and ID from Auth0 or global context.
+  // It attempts to find the best available name (nickname, given name, etc.) and sanitizes it.
   useEffect(() => {
     // Prefill the logged-in user's name/id so the wizard can auto-select them.
     if (user?.sub) {
@@ -229,8 +271,10 @@ export default function AddScore() {
     });
   }, [globalUser, user]);
 
+  // Fetch connected users (friends/group members) to populate the player selection list.
   const { connectedUsers } = useConnectedUsers(user?.sub);
 
+  // Effect to process connected users into a flat list of names and a name-to-ID map.
   useEffect(() => {
     if (connectedUsers.length === 0) return;
 
@@ -244,12 +288,13 @@ export default function AddScore() {
         ),
       ];
 
-      // Create name-to-id mapping
+      // Create name-to-id mapping for later use in saving the match.
       const nameToIdMap: { [name: string]: string } = {};
       connectedUsers.forEach(player => {
         const trimmedName = player.Name?.trim();
         if (trimmedName && trimmedName.length > 0) {
           nameToIdMap[trimmedName] = player.id;
+          // If we find the current user in the connected list, prefer that name.
           if (!nameFromProfiles && user?.sub && player.id === user.sub) {
             nameFromProfiles = trimmedName;
           }
@@ -258,6 +303,8 @@ export default function AddScore() {
 
       setPlayers(uniqueNames);
       setPlayerNameToId(nameToIdMap);
+
+      // Update userName if a better match is found in the profiles.
       if (nameFromProfiles) {
         setUserName((prev) => {
           const sanitizedPrev = prev?.trim() ?? "";
@@ -280,11 +327,15 @@ export default function AddScore() {
   }, [showDatePicker, showTimePicker, date]);
 
   // Utility controls for the score adjustment buttons beneath the inputs.
+  // --- Score Helpers ---
+
+  // Resets both scores to 0.
   const resetGame = () => {
     setYourScore("0");
     setOpponentScore("0");
   };
 
+  // Increments the score for the specified team, capped at 99.
   const incrementScore = (team: "your" | "opponent") => {
 
     if (team === "your") {
@@ -299,6 +350,7 @@ export default function AddScore() {
 
   };
 
+  // Decrements the score for the specified team, floored at 0.
   const decrementScore = (team: "your" | "opponent") => {
     if (team === "your") {
       setYourScore(prev => Math.max(0, (isNaN(parseInt(prev)) ? 0 : parseInt(prev)) - 1).toString());
@@ -308,10 +360,18 @@ export default function AddScore() {
   };
 
   // Draft date/time updates mirror the native picker selections before the user hits Done.
-  const onDraftDateChange = (_event: any, selectedDate?: Date) => {
+  // --- Date/Time Helpers ---
 
+  // Handler for date picker change (Android/iOS specific behavior handled by library).
+  const onDraftDateChange = (_event: any, selectedDate?: Date) => {
+    // Note: Implementation for immediate state update can be added here if needed.
+    // Currently, we rely on the 'Done' button to confirm.
+    if (selectedDate) {
+      setDraftDate(selectedDate);
+    }
   };
 
+  // Handler for time picker change. Updates the time portion of the draft date.
   const onDraftTimeChange = (_event: any, selectedTime?: Date) => {
     if (selectedTime) {
       const updatedDate = new Date(draftDate);
@@ -320,17 +380,24 @@ export default function AddScore() {
     }
   };
 
+  // Confirms the selected date from the picker.
   const confirmDateSelection = () => {
     setDate(draftDate);
     setShowDatePicker(false);
   };
 
+  // Confirms the selected time from the picker.
   const confirmTimeSelection = () => {
     setDate(draftDate);
     setShowTimePicker(false);
   };
 
   // Final save handler – validates the entire wizard and persists the match to Firestore.
+  /**
+   * Final save handler.
+   * Validates the entire wizard state and persists the match data to Firestore.
+   * Redirects to the viewScore page upon success.
+   */
   const handleSaveMatch = async () => {
 
     // Prevent saving with duplicate player selections
@@ -356,6 +423,7 @@ export default function AddScore() {
       (!Number.isNaN(parsedYourScore) && parsedYourScore > 0) ||
       (!Number.isNaN(parsedOpponentScore) && parsedOpponentScore > 0);
 
+    // Ensure all required fields are present
     if (
       sanitizedOpponent1 &&
       date !== null &&
@@ -369,12 +437,15 @@ export default function AddScore() {
       const team2Player1Id = playerNameToId[opponentPlayer1];
       const team2Player2Id = matchType === 'doubles' ? (playerNameToId[opponentPlayer2]) : '';
 
+      // Construct match data object
       const matchData: newMatchHistory = {
         team1: [team1Player1Id, team1Player2Id, parseInt(yourScore)],
         team2: [team2Player1Id, team2Player2Id, parseInt(opponentScore)],
         date: date,
         id: ""
       };
+
+      // Save to Firestore
       await createMatchHistory(matchData);
       router.replace('/matches/viewScore')
     } else {
