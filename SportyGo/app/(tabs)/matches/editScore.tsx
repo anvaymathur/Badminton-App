@@ -19,10 +19,11 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   getMatchHistoryById,
   updateMatchHistory,
+  getUserProfilesByIds,
 } from "../../../firebase/services_firestore2";
 import { useConnectedUsers } from "../../hooks/useConnectedUsers";
 import { useAuth0 } from "react-native-auth0";
-import type { newMatchHistory } from "@/firebase/types_index";
+import type { newMatchHistory, UserDoc } from "@/firebase/types_index";
 import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
 import { Adapt } from "@tamagui/adapt";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -135,6 +136,7 @@ export default function EditScore() {
   const [draftDate, setDraftDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [activePlayerField, setActivePlayerField] = useState<PlayerField | null>(null);
 
   // Ref to track initial form state for "unsaved changes" detection
   const initialFormRef = useRef<MatchEditForm | null>(null);
@@ -229,14 +231,69 @@ export default function EditScore() {
     }
   }, [showDatePicker, showTimePicker, form]);
 
+  // Extra players found in the match but not in connected users
+  const [extraPlayers, setExtraPlayers] = useState<PlayerOption[]>([]);
+  const [resolvingNames, setResolvingNames] = useState(true);
+
+  // Fetch profiles for any players in the form that aren't in the connected users list
+  useEffect(() => {
+    if (!form || playerOptionsLoading) return;
+
+    const fetchMissingProfiles = async () => {
+      const formIds = [
+        form.team1Player1,
+        form.team1Player2,
+        form.team2Player1,
+        form.team2Player2,
+      ].filter((id) => id && id.trim());
+
+      const knownIds = new Set(playerOptions.map((p) => p.id));
+      const extraIds = new Set(extraPlayers.map((p) => p.id));
+
+      // Find IDs that are in the form but not in our known lists
+      const missingIds = formIds.filter((id) => !knownIds.has(id) && !extraIds.has(id));
+
+      if (missingIds.length > 0) {
+        try {
+          const profilesMap = await getUserProfilesByIds(missingIds);
+          const newExtras = Object.values(profilesMap)
+            .filter((p): p is UserDoc => !!p)
+            .map((p) => ({ id: p.id, name: p.Name }));
+
+          if (newExtras.length > 0) {
+            setExtraPlayers((prev) => {
+              // Merge new extras with existing ones, avoiding duplicates
+              const existingIds = new Set(prev.map(p => p.id));
+              const uniqueNew = newExtras.filter(p => !existingIds.has(p.id));
+              return [...prev, ...uniqueNew];
+            });
+          }
+        } catch (error) {
+          console.error("Failed to fetch missing player profiles", error);
+        }
+      }
+      setResolvingNames(false);
+    };
+
+    fetchMissingProfiles();
+  }, [form, playerOptionsLoading]);
+
   // Memoized list of player options.
-  // Merges fetched players with any players currently in the form (in case they aren't in the fetched list).
+  // Merges fetched connected players with any extra fetched players and fallbacks.
   const mergedPlayerOptions = useMemo(() => {
     const optionMap = new Map<string, string>();
+
+    // 1. Add connected users
     playerOptions.forEach((option) => {
       optionMap.set(option.id, option.name);
     });
 
+    // 2. Add extra fetched players (from match history)
+    extraPlayers.forEach((option) => {
+      optionMap.set(option.id, option.name);
+    });
+
+    // 3. Fallback for IDs still not found (e.g. while loading or if fetch failed)
     if (form) {
       const ids = [
         form.team1Player1,
@@ -255,7 +312,7 @@ export default function EditScore() {
     return Array.from(optionMap.entries())
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-  }, [playerOptions, form]);
+  }, [playerOptions, extraPlayers, form]);
 
   const playerNameMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -323,8 +380,9 @@ export default function EditScore() {
   }, []);
 
   const handleScoreChange = useCallback(
-    (field: "team1Score" | "team2Score", value: string) => {
-      let sanitized = value.replace(/[^0-9]/g, "");
+    (field: "team1Score" | "team2Score", value: string | any) => {
+      const text = typeof value === "string" ? value : value?.nativeEvent?.text ?? "";
+      let sanitized = text.replace(/[^0-9]/g, "");
       if (sanitized.length > 2) {
         sanitized = sanitized.slice(0, 2);
       }
@@ -372,6 +430,30 @@ export default function EditScore() {
     });
     setShowTimePicker(false);
   }, [draftDate]);
+
+  const handleAndroidDateChange = useCallback((event: any, selected?: Date) => {
+    setShowDatePicker(false);
+    if (event.type === "set" && selected) {
+      setForm((prev) => {
+        if (!prev) return prev;
+        const next = new Date(prev.date);
+        next.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+        return { ...prev, date: next };
+      });
+    }
+  }, []);
+
+  const handleAndroidTimeChange = useCallback((event: any, selected?: Date) => {
+    setShowTimePicker(false);
+    if (event.type === "set" && selected) {
+      setForm((prev) => {
+        if (!prev) return prev;
+        const next = new Date(prev.date);
+        next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+        return { ...prev, date: next };
+      });
+    }
+  }, []);
 
   // Saves the edited match data to Firestore.
   const handleSave = useCallback(async () => {
@@ -484,7 +566,7 @@ export default function EditScore() {
     );
   }, [hasChanges, router]);
 
-  if (loading || !form) {
+  if (loading || !form || resolvingNames) {
     return (
       <SafeAreaWrapper>
         <YStack
@@ -492,7 +574,7 @@ export default function EditScore() {
           bg="$background"
           items="center"
           justify="center"
-          space="$3"
+          gap="$3"
           p="$4"
         >
           <Spinner size="large" color="$color9" />
@@ -516,7 +598,7 @@ export default function EditScore() {
           borderBottomWidth={1}
           borderBottomColor="$borderColor"
           items="center"
-          space="$3"
+          gap="$3"
         >
           <Button variant="outlined" size="$3" onPress={handleGoBack}>
             <Ionicons name="arrow-back" size={20} />
@@ -528,7 +610,7 @@ export default function EditScore() {
         </XStack>
 
         <ScrollView flex={1} p="$4" showsVerticalScrollIndicator={false}>
-          <YStack space="$4" pb="$10">
+          <YStack gap="$4" pb="$10">
             {editError ? (
               <Card
                 borderColor="#DC2626"
@@ -549,7 +631,7 @@ export default function EditScore() {
                 backgroundColor="$color2"
                 p="$3"
               >
-                <YStack space="$3">
+                <YStack gap="$3">
                   <Text color="#EA580C" fontSize="$2">
                     {playerOptionsError}
                   </Text>
@@ -575,18 +657,18 @@ export default function EditScore() {
                 backgroundColor="$color2"
                 p="$3"
               >
-                <XStack space="$3" items="center">
+                <XStack gap="$3" items="center">
                   <Spinner color="$color9" size="small" />
                   <Text color="$color10">Loading players…</Text>
                 </XStack>
               </Card>
             ) : null}
 
-            <YStack space="$3">
+            <YStack gap="$3">
               <Text fontSize="$3" fontWeight="600" color="$color">
                 Match Type
               </Text>
-              <XStack space="$3">
+              <XStack gap="$3">
                 <Button
                   flex={1}
                   bg={form.matchType === "singles" ? "$color9" : "$color3"}
@@ -607,191 +689,91 @@ export default function EditScore() {
             </YStack>
 
             <Card p="$4" backgroundColor="$color2" borderWidth={1} borderColor="$borderColor">
-              <YStack space="$4">
-                <YStack space="$3">
+              <YStack gap="$4">
+                <YStack gap="$3">
                   <Text fontSize="$3" fontWeight="600" color="$color">
                     Team 1
                   </Text>
-                  <Select
-                    value={form.team1Player1}
-                    onValueChange={(value) => handlePlayerChange("team1Player1", value)}
+                  <Button
+                    onPress={() => form.team1Player1 !== user?.sub && setActivePlayerField("team1Player1")}
+                    disabled={form.team1Player1 === user?.sub}
+                    opacity={form.team1Player1 === user?.sub ? 0.8 : 1}
+                    bg="$color4"
+                    borderColor="$borderColor"
+                    borderWidth={1}
+                    justify="flex-start"
+                    pl="$3"
+                    iconAfter={form.team1Player1 === user?.sub ? <Ionicons name="lock-closed" size={16} color="$color10" /> : undefined}
                   >
-                    <Select.Trigger backgroundColor="$color4" borderColor="$borderColor" width="100%">
-                      <Select.Value placeholder="Select Player 1">
-                        {form.team1Player1 ? getPlayerLabel(form.team1Player1) : undefined}
-                      </Select.Value>
-                    </Select.Trigger>
-
-                    <Adapt when="sm" platform="touch">
-                      <Sheet modal dismissOnSnapToBottom position={0}>
-                        <Sheet.Frame height={400}>
-                          <Adapt.Contents />
-                        </Sheet.Frame>
-                        <Sheet.Overlay />
-                      </Sheet>
-                    </Adapt>
-
-                    <Select.Content zIndex={200000}>
-                      <Select.ScrollUpButton />
-                      <Select.Viewport minH={140} maxH={320}>
-                        <Select.Group>
-                          <Select.Label>Players</Select.Label>
-                          {optionsForField("team1Player1").map((option, index) => (
-                            <Select.Item
-                              key={`${option.id}-team1a-${index}`}
-                              value={option.id}
-                              index={index}
-                            >
-                              <Select.ItemText>{option.name}</Select.ItemText>
-                            </Select.Item>
-                          ))}
-                        </Select.Group>
-                      </Select.Viewport>
-                      <Select.ScrollDownButton />
-                    </Select.Content>
-                  </Select>
+                    <Text color={form.team1Player1 ? "$color" : "$color10"}>
+                      {form.team1Player1 ? getPlayerLabel(form.team1Player1) : "Select Player 1"}
+                    </Text>
+                  </Button>
 
                   {form.matchType === "doubles" ? (
-                    <Select
-                      value={form.team1Player2}
-                      onValueChange={(value) => handlePlayerChange("team1Player2", value)}
+                    <Button
+                      onPress={() => form.team1Player2 !== user?.sub && setActivePlayerField("team1Player2")}
+                      disabled={form.team1Player2 === user?.sub}
+                      opacity={form.team1Player2 === user?.sub ? 0.8 : 1}
+                      bg="$color4"
+                      borderColor="$borderColor"
+                      borderWidth={1}
+                      justify="flex-start"
+                      pl="$3"
+                      iconAfter={form.team1Player2 === user?.sub ? <Ionicons name="lock-closed" size={16} color="$color10" /> : undefined}
                     >
-                      <Select.Trigger
-                        backgroundColor="$color4"
-                        borderColor="$borderColor"
-                        width="100%"
-                      >
-                        <Select.Value placeholder="Select Player 2">
-                          {form.team1Player2 ? getPlayerLabel(form.team1Player2) : undefined}
-                        </Select.Value>
-                      </Select.Trigger>
-
-                      <Adapt when="sm" platform="touch">
-                        <Sheet modal dismissOnSnapToBottom position={0}>
-                          <Sheet.Frame height={400}>
-                            <Adapt.Contents />
-                          </Sheet.Frame>
-                          <Sheet.Overlay />
-                        </Sheet>
-                      </Adapt>
-
-                      <Select.Content zIndex={200000}>
-                        <Select.ScrollUpButton />
-                        <Select.Viewport minH={140} maxH={320}>
-                          <Select.Group>
-                            <Select.Label>Players</Select.Label>
-                            {optionsForField("team1Player2").map((option, index) => (
-                              <Select.Item
-                                key={`${option.id}-team1b-${index}`}
-                                value={option.id}
-                                index={index}
-                              >
-                                <Select.ItemText>{option.name}</Select.ItemText>
-                              </Select.Item>
-                            ))}
-                          </Select.Group>
-                        </Select.Viewport>
-                        <Select.ScrollDownButton />
-                      </Select.Content>
-                    </Select>
+                      <Text color={form.team1Player2 ? "$color" : "$color10"}>
+                        {form.team1Player2 ? getPlayerLabel(form.team1Player2) : "Select Player 2"}
+                      </Text>
+                    </Button>
                   ) : null}
                 </YStack>
 
-                <YStack space="$3">
+                <YStack gap="$3">
                   <Text fontSize="$3" fontWeight="600" color="$color">
                     Team 2
                   </Text>
-                  <Select
-                    value={form.team2Player1}
-                    onValueChange={(value) => handlePlayerChange("team2Player1", value)}
+                  <Button
+                    onPress={() => form.team2Player1 !== user?.sub && setActivePlayerField("team2Player1")}
+                    disabled={form.team2Player1 === user?.sub}
+                    opacity={form.team2Player1 === user?.sub ? 0.8 : 1}
+                    bg="$color4"
+                    borderColor="$borderColor"
+                    borderWidth={1}
+                    justify="flex-start"
+                    pl="$3"
+                    iconAfter={form.team2Player1 === user?.sub ? <Ionicons name="lock-closed" size={16} color="$color10" /> : undefined}
                   >
-                    <Select.Trigger backgroundColor="$color4" borderColor="$borderColor" width="100%">
-                      <Select.Value placeholder="Select Player 1">
-                        {form.team2Player1 ? getPlayerLabel(form.team2Player1) : undefined}
-                      </Select.Value>
-                    </Select.Trigger>
-
-                    <Adapt when="sm" platform="touch">
-                      <Sheet modal dismissOnSnapToBottom position={0}>
-                        <Sheet.Frame height={400}>
-                          <Adapt.Contents />
-                        </Sheet.Frame>
-                        <Sheet.Overlay />
-                      </Sheet>
-                    </Adapt>
-
-                    <Select.Content zIndex={200000}>
-                      <Select.ScrollUpButton />
-                      <Select.Viewport minH={140} maxH={320}>
-                        <Select.Group>
-                          <Select.Label>Players</Select.Label>
-                          {optionsForField("team2Player1").map((option, index) => (
-                            <Select.Item
-                              key={`${option.id}-team2a-${index}`}
-                              value={option.id}
-                              index={index}
-                            >
-                              <Select.ItemText>{option.name}</Select.ItemText>
-                            </Select.Item>
-                          ))}
-                        </Select.Group>
-                      </Select.Viewport>
-                      <Select.ScrollDownButton />
-                    </Select.Content>
-                  </Select>
+                    <Text color={form.team2Player1 ? "$color" : "$color10"}>
+                      {form.team2Player1 ? getPlayerLabel(form.team2Player1) : "Select Player 1"}
+                    </Text>
+                  </Button>
 
                   {form.matchType === "doubles" ? (
-                    <Select
-                      value={form.team2Player2}
-                      onValueChange={(value) => handlePlayerChange("team2Player2", value)}
+                    <Button
+                      onPress={() => form.team2Player2 !== user?.sub && setActivePlayerField("team2Player2")}
+                      disabled={form.team2Player2 === user?.sub}
+                      opacity={form.team2Player2 === user?.sub ? 0.8 : 1}
+                      bg="$color4"
+                      borderColor="$borderColor"
+                      borderWidth={1}
+                      justify="flex-start"
+                      pl="$3"
+                      iconAfter={form.team2Player2 === user?.sub ? <Ionicons name="lock-closed" size={16} color="$color10" /> : undefined}
                     >
-                      <Select.Trigger
-                        backgroundColor="$color4"
-                        borderColor="$borderColor"
-                        width="100%"
-                      >
-                        <Select.Value placeholder="Select Player 2">
-                          {form.team2Player2 ? getPlayerLabel(form.team2Player2) : undefined}
-                        </Select.Value>
-                      </Select.Trigger>
-
-                      <Adapt when="sm" platform="touch">
-                        <Sheet modal dismissOnSnapToBottom position={0}>
-                          <Sheet.Frame height={400}>
-                            <Adapt.Contents />
-                          </Sheet.Frame>
-                          <Sheet.Overlay />
-                        </Sheet>
-                      </Adapt>
-
-                      <Select.Content zIndex={200000}>
-                        <Select.ScrollUpButton />
-                        <Select.Viewport minH={140} maxH={320}>
-                          <Select.Group>
-                            <Select.Label>Players</Select.Label>
-                            {optionsForField("team2Player2").map((option, index) => (
-                              <Select.Item
-                                key={`${option.id}-team2b-${index}`}
-                                value={option.id}
-                                index={index}
-                              >
-                                <Select.ItemText>{option.name}</Select.ItemText>
-                              </Select.Item>
-                            ))}
-                          </Select.Group>
-                        </Select.Viewport>
-                        <Select.ScrollDownButton />
-                      </Select.Content>
-                    </Select>
+                      <Text color={form.team2Player2 ? "$color" : "$color10"}>
+                        {form.team2Player2 ? getPlayerLabel(form.team2Player2) : "Select Player 2"}
+                      </Text>
+                    </Button>
                   ) : null}
                 </YStack>
 
-                <YStack space="$3">
+                <YStack gap="$3">
                   <Text fontSize="$3" fontWeight="600" color="$color">
                     Final Score
                   </Text>
-                  <XStack space="$3">
-                    <YStack flex={1} space="$2">
+                  <XStack gap="$3">
+                    <YStack flex={1} gap="$2">
                       <Text color="$color10" fontSize="$2">
                         Team 1 Points
                       </Text>
@@ -805,7 +787,7 @@ export default function EditScore() {
                         borderWidth={1}
                       />
                     </YStack>
-                    <YStack flex={1} space="$2">
+                    <YStack flex={1} gap="$2">
                       <Text color="$color10" fontSize="$2">
                         Team 2 Points
                       </Text>
@@ -825,7 +807,7 @@ export default function EditScore() {
             </Card>
 
             <Card p="$4" backgroundColor="$color2" borderWidth={1} borderColor="$borderColor">
-              <YStack space="$3">
+              <YStack gap="$3">
                 <Text fontSize="$3" fontWeight="600" color="$color">
                   Match Date &amp; Time
                 </Text>
@@ -838,7 +820,7 @@ export default function EditScore() {
                 <Paragraph color="$color10">
                   Adjust the recorded date or include a finish time if available.
                 </Paragraph>
-                <XStack space="$3">
+                <XStack gap="$3">
                   <Button flex={1} variant="outlined" onPress={() => setShowDatePicker(true)}>
                     Change Date
                   </Button>
@@ -852,78 +834,138 @@ export default function EditScore() {
         </ScrollView>
       </View>
 
-      <Sheet
-        modal
-        open={showDatePicker}
-        onOpenChange={(open: boolean) => {
-          setShowDatePicker(open);
-          if (!open && form) {
-            setDraftDate(form.date);
-          }
-        }}
-        snapPoints={[50]}
-        dismissOnSnapToBottom
-      >
-        <Sheet.Overlay opacity={0.25} />
-        <Sheet.Handle />
-        <Sheet.Frame p="$4" bg="$background">
-          <YStack space="$4">
-            <H4>Select Match Date</H4>
-            <Paragraph color="$color10">
-              Choose the day this match was played.
-            </Paragraph>
-            <DateTimePicker
-              value={draftDate}
-              mode="date"
-              display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={handleDraftDateChange}
-            />
-            <XStack space="$3">
-              <Button flex={1} variant="outlined" onPress={() => setShowDatePicker(false)}>
-                Cancel
-              </Button>
-              <Button flex={1} onPress={confirmDraftDate}>
-                Save
-              </Button>
-            </XStack>
-          </YStack>
-        </Sheet.Frame>
-      </Sheet>
+      {Platform.OS === "android" && showDatePicker && (
+        <DateTimePicker
+          value={form?.date ?? new Date()}
+          mode="date"
+          display="default"
+          onChange={handleAndroidDateChange}
+        />
+      )}
 
+      {Platform.OS === "android" && showTimePicker && (
+        <DateTimePicker
+          value={form?.date ?? new Date()}
+          mode="time"
+          display="default"
+          onChange={handleAndroidTimeChange}
+        />
+      )}
+
+      {Platform.OS === "ios" && (
+        <>
+          <Sheet
+            modal
+            open={showDatePicker}
+            onOpenChange={(open: boolean) => {
+              setShowDatePicker(open);
+              if (!open && form) {
+                setDraftDate(form.date);
+              }
+            }}
+            snapPoints={[50]}
+            dismissOnSnapToBottom
+          >
+            <Sheet.Overlay opacity={0.25} />
+            <Sheet.Handle />
+            <Sheet.Frame p="$4" bg="$background">
+              <YStack gap="$4">
+                <H4>Select Match Date</H4>
+                <Paragraph color="$color10">
+                  Choose the day this match was played.
+                </Paragraph>
+                <DateTimePicker
+                  value={draftDate}
+                  mode="date"
+                  display="spinner"
+                  onChange={handleDraftDateChange}
+                />
+                <XStack gap="$3">
+                  <Button flex={1} variant="outlined" onPress={() => setShowDatePicker(false)}>
+                    Cancel
+                  </Button>
+                  <Button flex={1} onPress={confirmDraftDate}>
+                    Save
+                  </Button>
+                </XStack>
+              </YStack>
+            </Sheet.Frame>
+          </Sheet>
+
+          <Sheet
+            modal
+            open={showTimePicker}
+            onOpenChange={(open: boolean) => {
+              setShowTimePicker(open);
+              if (!open && form) {
+                setDraftDate(form.date);
+              }
+            }}
+            snapPoints={[50]}
+            dismissOnSnapToBottom
+          >
+            <Sheet.Overlay opacity={0.25} />
+            <Sheet.Handle />
+            <Sheet.Frame p="$4" bg="$background">
+              <YStack gap="$4">
+                <H4>Select Match Time</H4>
+                <Paragraph color="$color10">
+                  Pick the time the match finished. Leave as-is if it wasn’t captured.
+                </Paragraph>
+                <DateTimePicker
+                  value={draftDate}
+                  mode="time"
+                  display="spinner"
+                  onChange={handleDraftTimeChange}
+                />
+                <XStack gap="$3">
+                  <Button flex={1} variant="outlined" onPress={() => setShowTimePicker(false)}>
+                    Cancel
+                  </Button>
+                  <Button flex={1} onPress={confirmDraftTime}>
+                    Save
+                  </Button>
+                </XStack>
+              </YStack>
+            </Sheet.Frame>
+          </Sheet>
+        </>
+      )}
       <Sheet
         modal
-        open={showTimePicker}
+        open={!!activePlayerField}
         onOpenChange={(open: boolean) => {
-          setShowTimePicker(open);
-          if (!open && form) {
-            setDraftDate(form.date);
-          }
+          if (!open) setActivePlayerField(null);
         }}
-        snapPoints={[50]}
+        snapPoints={[60, 85]}
         dismissOnSnapToBottom
       >
-        <Sheet.Overlay opacity={0.25} />
+        <Sheet.Overlay opacity={0.5} />
         <Sheet.Handle />
-        <Sheet.Frame p="$4" bg="$background">
-          <YStack space="$4">
-            <H4>Select Match Time</H4>
-            <Paragraph color="$color10">
-              Pick the time the match finished. Leave as-is if it wasn’t captured.
-            </Paragraph>
-            <DateTimePicker
-              value={draftDate}
-              mode="time"
-              display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={handleDraftTimeChange}
-            />
-            <XStack space="$3">
-              <Button flex={1} variant="outlined" onPress={() => setShowTimePicker(false)}>
-                Cancel
-              </Button>
-              <Button flex={1} onPress={confirmDraftTime}>
-                Save
-              </Button>
-            </XStack>
+        <Sheet.Frame bg="$background" p="$4">
+          <YStack gap="$4" flex={1}>
+            <H4>Select Player</H4>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <YStack gap="$2" pb="$8">
+                {activePlayerField &&
+                  optionsForField(activePlayerField).map((option) => (
+                    <Card
+                      key={option.id}
+                      bordered
+                      p="$3"
+                      onPress={() => {
+                        handlePlayerChange(activePlayerField, option.id);
+                        setActivePlayerField(null);
+                      }}
+                      pressStyle={{ bg: "$color3" }}
+                    >
+                      <Text fontSize="$3" color="$color">
+                        {option.name}
+                      </Text>
+                    </Card>
+                  ))}
+              </YStack>
+            </ScrollView>
           </YStack>
         </Sheet.Frame>
       </Sheet>

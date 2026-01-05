@@ -14,6 +14,7 @@ import {
   Separator,
   Spinner,
   Avatar,
+  ScrollView,
 } from "tamagui";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -140,12 +141,12 @@ function TeamCard({ nameString, profiles, fallbackIds, score, winner, tied = fal
   return (
     <Card
       flex={1}
-      minWidth={180}
       p="$4"
       bg="$color2"
       borderRadius="$4"
       borderWidth={winner ? 2 : 1}
       borderColor={winner ? WINNER_ACCENT_COLOR : "$borderColor"}
+      
     >
       <YStack space="$4" items="center">
         {/* Player Avatars */}
@@ -437,113 +438,115 @@ export default function ViewIndividualScore() {
         </XStack>
 
         {/* Content */}
-        <YStack flex={1} p="$4" space="$4">
-          {/* Outcome banner */}
-          <Card backgroundColor={outcomeColor} borderRadius="$4" p="$4">
-            <YStack space="$3">
-              <Text
-                color="#F9FAFB"
-                fontSize="$2"
-                fontWeight="700"
-                textTransform="uppercase"
-                letterSpacing={1}
-              >
-                {isTie ? "Tie" : outcomeType === "win" ? "Win" : "Loss"}
-              </Text>
-              <Text color="#FFFFFF" fontSize="$7" fontWeight="900" numberOfLines={2}>
-                {outcomeText}
-              </Text>
-              <Text color="#F9FAFB" fontSize="$3">
-                {outcomeSubtext}
-              </Text>
-            </YStack>
-          </Card>
+        <ScrollView flex={1}>
+          <YStack p="$4" space="$4">
+            {/* Outcome banner */}
+            <Card backgroundColor={outcomeColor} borderRadius="$4" p="$4">
+              <YStack space="$3">
+                <Text
+                  color="#F9FAFB"
+                  fontSize="$2"
+                  fontWeight="700"
+                  textTransform="uppercase"
+                  letterSpacing={1}
+                >
+                  {isTie ? "Tie" : outcomeType === "win" ? "Win" : "Loss"}
+                </Text>
+                <Text color="#FFFFFF" fontSize="$7" fontWeight="900" numberOfLines={2}>
+                  {outcomeText}
+                </Text>
+                <Text color="#F9FAFB" fontSize="$3">
+                  {outcomeSubtext}
+                </Text>
+              </YStack>
+            </Card>
 
-          {/* Match meta */}
-          <Card p="$4" bg="$color2" borderWidth={1} borderColor="$borderColor" borderRadius="$4">
-            <YStack space="$3">
-              <Text
-                color="$color10"
-                fontSize="$2"
-                fontWeight="600"
-                textTransform="uppercase"
-                letterSpacing={1}
-              >
-                Match Date
-              </Text>
-              <Text color="$color" fontSize="$5" fontWeight="700">
-                {formatDate(match.date)}
-              </Text>
-              <Text color="$color10" fontSize="$3">
-                {isDoubles ? "Doubles match" : "Singles match"}
-              </Text>
-            </YStack>
-          </Card>
-
-          {/* Final score */}
-          <Card p="$4" bg="$color2" borderWidth={1} borderColor="$borderColor" borderRadius="$4">
-            <YStack space="$4" items="center">
-              <Text
-                color="$color10"
-                fontSize="$2"
-                fontWeight="600"
-                textTransform="uppercase"
-                letterSpacing={1}
-              >
-                Final Score
-              </Text>
-              <XStack space="$6" items="center">
-                <Text fontSize="$7" fontWeight="900" color="$color">
-                  {team1Score}
+            {/* Match meta */}
+            <Card p="$4" bg="$color2" borderWidth={1} borderColor="$borderColor" borderRadius="$4">
+              <YStack space="$3">
+                <Text
+                  color="$color10"
+                  fontSize="$2"
+                  fontWeight="600"
+                  textTransform="uppercase"
+                  letterSpacing={1}
+                >
+                  Match Date
                 </Text>
-                <Text fontSize="$4" fontWeight="800" color="$color10">
-                  -
+                <Text color="$color" fontSize="$5" fontWeight="700">
+                  {formatDate(match.date)}
                 </Text>
-                <Text fontSize="$7" fontWeight="900" color="$color">
-                  {team2Score}
-                </Text>
-              </XStack>
-              {!isTie ? (
-                <Card px="$4" py="$3" bg="$color9" borderRadius="$3">
-                  <XStack space="$3" items="center">
-                    <Ionicons
-                      name={isTeam1Winner ? "arrow-up" : "arrow-down"}
-                      size={18}
-                      color="#FFFFFF"
-                    />
-                    <Text color="$color1" fontSize="$3" fontWeight="700">
-                      {scoreHighlightText}
-                    </Text>
-                  </XStack>
-                </Card>
-              ) : (
                 <Text color="$color10" fontSize="$3">
-                  {scoreHighlightText}
+                  {isDoubles ? "Doubles match" : "Singles match"}
                 </Text>
-              )}
-            </YStack>
-          </Card>
+              </YStack>
+            </Card>
 
-          {/* Team cards */}
-          <XStack space="$4" flexWrap="wrap" items="stretch">
-            <TeamCard
-              nameString={team1Label}
-              profiles={team1Profiles}
-              fallbackIds={team1FallbackIds}
-              score={team1Score}
-              winner={!isTie && isTeam1Winner}
-              tied={isTie}
-            />
-            <TeamCard
-              nameString={team2Label}
-              profiles={team2Profiles}
-              fallbackIds={team2FallbackIds}
-              score={team2Score}
-              winner={!isTie && !isTeam1Winner}
-              tied={isTie}
-            />
-          </XStack>
-        </YStack>
+            {/* Final score */}
+            <Card p="$4" bg="$color2" borderWidth={1} borderColor="$borderColor" borderRadius="$4">
+              <YStack space="$4" items="center">
+                <Text
+                  color="$color10"
+                  fontSize="$2"
+                  fontWeight="600"
+                  textTransform="uppercase"
+                  letterSpacing={1}
+                >
+                  Final Score
+                </Text>
+                <XStack space="$6" items="center">
+                  <Text fontSize="$7" fontWeight="900" color="$color">
+                    {team1Score}
+                  </Text>
+                  <Text fontSize="$4" fontWeight="800" color="$color10">
+                    -
+                  </Text>
+                  <Text fontSize="$7" fontWeight="900" color="$color">
+                    {team2Score}
+                  </Text>
+                </XStack>
+                {!isTie ? (
+                  <Card px="$4" py="$3" bg="$color9" borderRadius="$3">
+                    <XStack space="$3" items="center">
+                      <Ionicons
+                        name={isTeam1Winner ? "arrow-up" : "arrow-down"}
+                        size={18}
+                        color="#FFFFFF"
+                      />
+                      <Text color="$color1" fontSize="$3" fontWeight="700">
+                        {scoreHighlightText}
+                      </Text>
+                    </XStack>
+                  </Card>
+                ) : (
+                  <Text color="$color10" fontSize="$3">
+                    {scoreHighlightText}
+                  </Text>
+                )}
+              </YStack>
+            </Card>
+
+            {/* Team cards */}
+            <XStack space="$4" flexWrap="wrap" items="stretch">
+              <TeamCard
+                nameString={team1Label}
+                profiles={team1Profiles}
+                fallbackIds={team1FallbackIds}
+                score={team1Score}
+                winner={!isTie && isTeam1Winner}
+                tied={isTie}
+              />
+              <TeamCard
+                nameString={team2Label}
+                profiles={team2Profiles}
+                fallbackIds={team2FallbackIds}
+                score={team2Score}
+                winner={!isTie && !isTeam1Winner}
+                tied={isTie}
+              />
+            </XStack>
+          </YStack>
+        </ScrollView>
       </View>
     </SafeAreaWrapper>
   );

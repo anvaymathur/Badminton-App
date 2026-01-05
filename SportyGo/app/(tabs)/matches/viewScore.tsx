@@ -59,6 +59,9 @@ const parseMatchDate = (date: Date | string | any): Date | null => {
     dateObj = new Date(date);
   } else if (date?.toDate) {
     dateObj = date.toDate();
+  } else if (date && typeof date === "object" && "seconds" in date) {
+    // Handle rehydrated Firestore Timestamp objects (from JSON cache)
+    dateObj = new Date(date.seconds * 1000);
   } else if (date) {
     dateObj = new Date(date);
   }
