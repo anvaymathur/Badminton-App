@@ -25,6 +25,7 @@ import { useRouter } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
 import { createMatchHistory } from '@/firebase/services_firestore2';
 import { useConnectedUsers } from '../../hooks/useConnectedUsers';
+import { useTempUsers } from '../../hooks/useTempUsers';
 import { newMatchHistory, UserDoc } from '@/firebase/types_index';
 import { Alert, Platform } from "react-native";
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -274,9 +275,17 @@ export default function AddScore() {
   // Fetch connected users (friends/group members) to populate the player selection list.
   const { connectedUsers } = useConnectedUsers(user?.sub);
 
-  // Effect to process connected users into a flat list of names and a name-to-ID map.
+  // Temp user integration: owned temps for the picker + creation flow
+  const { ownedTemps, createOrReuseTempUser } = useTempUsers(user?.sub);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [qaName, setQaName] = useState('');
+  const [qaEmail, setQaEmail] = useState('');
+  const [qaPhone, setQaPhone] = useState('');
+  const [qaSubmitting, setQaSubmitting] = useState(false);
+
+  // Effect to process connected users and owned temp users into a flat list of names and a name-to-ID map.
   useEffect(() => {
-    if (connectedUsers.length === 0) return;
+    if (connectedUsers.length === 0 && ownedTemps.length === 0) return;
 
     const processPlayers = () => {
       let nameFromProfiles = "";
@@ -301,6 +310,18 @@ export default function AddScore() {
         }
       });
 
+      // Merge owned temp users into the player list.
+      // Suffix with " (Guest)" if the name collides with an existing real user.
+      ownedTemps.forEach(temp => {
+        const displayName = uniqueNames.includes(temp.Name)
+          ? `${temp.Name} (Guest)`
+          : temp.Name;
+        if (!uniqueNames.includes(displayName)) {
+          uniqueNames.push(displayName);
+          nameToIdMap[displayName] = temp.id;
+        }
+      });
+
       setPlayers(uniqueNames);
       setPlayerNameToId(nameToIdMap);
 
@@ -318,7 +339,7 @@ export default function AddScore() {
     };
 
     processPlayers();
-  }, [connectedUsers, user?.sub]);
+  }, [connectedUsers, user?.sub, ownedTemps]);
 
   useEffect(() => {
     if (showDatePicker || showTimePicker) {
@@ -436,6 +457,17 @@ export default function AddScore() {
       const team1Player2Id = matchType === 'doubles' ? (playerNameToId[yourPlayer2]) : '';
       const team2Player1Id = playerNameToId[opponentPlayer1];
       const team2Player2Id = matchType === 'doubles' ? (playerNameToId[opponentPlayer2]) : '';
+
+      // Ownership gate: every player ID must have been resolved through the picker.
+      // This blocks any state-manipulated IDs that aren't in the verified set.
+      const resolvedIds = new Set([...Object.values(playerNameToId), userID]);
+      const idsToCheck = [team1Player1Id, team1Player2Id, team2Player1Id, team2Player2Id].filter(id => id !== '');
+      for (const pid of idsToCheck) {
+        if (!resolvedIds.has(pid)) {
+          Alert.alert("Permission denied", "One or more players could not be verified. Please select players from the list.");
+          return;
+        }
+      }
 
       // Construct match data object
       const matchData: newMatchHistory = {
@@ -843,17 +875,125 @@ export default function AddScore() {
                     )}
                   </YStack>
 
-                  {/* Placeholder quick add – reserved for future enhancements */}
+                  {/* Quick Add Player – creates or reuses a temp user */}
                   <Button
                     bg="$color9"
                     onPress={() => {
-                      // Placeholder for future quick add functionality
+                      setQaName('');
+                      setQaEmail('');
+                      setQaPhone('');
+                      setShowQuickAdd(true);
                     }}
                     mt="$1"
                     color="$color1"
                   >
                     Quick Add Player
                   </Button>
+
+                  {/* Quick Add modal sheet */}
+                  <Sheet
+                    modal
+                    open={showQuickAdd}
+                    onOpenChange={setShowQuickAdd}
+                    snapPoints={[55]}
+                    dismissOnSnapToBottom
+                    zIndex={200000}
+                  >
+                    <Sheet.Frame p="$4" space="$4">
+                      <Sheet.Handle />
+                      <H5>Add a Player</H5>
+                      <Paragraph color="$color10" fontSize="$3">
+                        Enter their details. If they already exist, we'll reuse the existing entry.
+                      </Paragraph>
+                      <YStack space="$3">
+                        <Input
+                          value={qaName}
+                          onChangeText={(text: any) => setQaName(text)}
+                          placeholder="Name *"
+                          borderColor="$color6"
+                          borderWidth={1}
+                          background="$color2"
+                          color="$color"
+                          placeholderTextColor="$color10"
+                          p="$3"
+                          style={{ borderRadius: 8, fontSize: 16 }}
+                        />
+                        <Input
+                          value={qaEmail}
+                          onChangeText={(text: any) => setQaEmail(text)}
+                          placeholder="Email"
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          borderColor="$color6"
+                          borderWidth={1}
+                          background="$color2"
+                          color="$color"
+                          placeholderTextColor="$color10"
+                          p="$3"
+                          style={{ borderRadius: 8, fontSize: 16 }}
+                        />
+                        <Input
+                          value={qaPhone}
+                          onChangeText={(text: any) => {
+                            const digits = text.replace(/\D/g, '');
+                            setQaPhone(digits);
+                          }}
+                          placeholder="Phone"
+                          keyboardType="numeric"
+                          inputMode="numeric"
+                          borderColor="$color6"
+                          borderWidth={1}
+                          background="$color2"
+                          color="$color"
+                          placeholderTextColor="$color10"
+                          p="$3"
+                          style={{ borderRadius: 8, fontSize: 16 }}
+                        />
+                        <Paragraph color="$color10" fontSize="$2">
+                          At least one of Email or Phone is required.
+                        </Paragraph>
+                      </YStack>
+                      <XStack space="$3" mt="$2">
+                        <Button flex={1} variant="outlined" onPress={() => setShowQuickAdd(false)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          flex={1}
+                          bg="$color9"
+                          color="$color1"
+                          disabled={qaSubmitting}
+                          onPress={async () => {
+                            if (!qaName.trim()) {
+                              Alert.alert("Missing name", "Please enter a display name.");
+                              return;
+                            }
+                            if (!qaEmail.trim() && !qaPhone.trim()) {
+                              Alert.alert("Missing contact", "Please enter at least an email or phone number.");
+                              return;
+                            }
+                            setQaSubmitting(true);
+                            try {
+                              const resolved = await createOrReuseTempUser(qaName.trim(), qaEmail.trim(), qaPhone.trim());
+                              // Inject into the local player state immediately
+                              const displayName = players.includes(resolved.Name)
+                                ? `${resolved.Name} (Guest)`
+                                : resolved.Name;
+                              setPlayers(prev => prev.includes(displayName) ? prev : [...prev, displayName]);
+                              setPlayerNameToId(prev => ({ ...prev, [displayName]: resolved.id }));
+                              setShowQuickAdd(false);
+                            } catch (e) {
+                              console.error('Quick Add failed', e);
+                              Alert.alert("Error", "Failed to add player. Please try again.");
+                            } finally {
+                              setQaSubmitting(false);
+                            }
+                          }}
+                        >
+                          {qaSubmitting ? 'Adding...' : 'Add Player'}
+                        </Button>
+                      </XStack>
+                    </Sheet.Frame>
+                  </Sheet>
                 </YStack>
               </Card>
             )}

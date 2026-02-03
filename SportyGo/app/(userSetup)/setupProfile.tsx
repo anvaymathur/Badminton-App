@@ -5,7 +5,7 @@ import { router } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
 import { PhoneInput } from "../components/phoneInput";
 import { UserDoc } from '../../firebase/types_index';
-import { createUserProfile, getUserProfile, updateUserProfile } from '../../firebase/services_firestore2';
+import { createUserProfile, getUserProfile, updateUserProfile, checkForClaimableTemps } from '../../firebase/services_firestore2';
 import { UserContext } from "../components/userContext";
 import { SafeAreaWrapper } from "../components/SafeAreaWrapper";
 import { PhotoAvatar } from "../components/PhotoAvatar";
@@ -98,7 +98,13 @@ export default function SetupProfile() {
                 delete (user as any)["https://badmintonapp.com/is_signup"]
             } catch {}
             await saveUser({name: name, email: email})
-            router.replace('/dashboard')
+            // Detect claimable temp users before routing to dashboard
+            const claimable = await checkForClaimableTemps(email, phone);
+            if (claimable.length > 0) {
+                router.replace({ pathname: '/claimTempUsers' as any, params: { ids: JSON.stringify(claimable.map(t => t.id)) } });
+            } else {
+                router.replace('/dashboard')
+            }
         } else {
             Alert.alert(
                 "Missing Information",

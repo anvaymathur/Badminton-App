@@ -3,7 +3,7 @@ import { useAuth0 } from 'react-native-auth0';
 import { router } from 'expo-router';
 import { View, YStack, Card, Button, Text, Paragraph, H2, H3, Image, Spinner } from 'tamagui';
 import { UserContext } from "../components/userContext";
-import {getUserProfile} from "../../firebase/services_firestore2";
+import {getUserProfile, checkForClaimableTemps} from "../../firebase/services_firestore2";
 import { SafeAreaWrapper } from "../components/SafeAreaWrapper";
 
 
@@ -16,7 +16,13 @@ export default function LoginScreen() {
         const userProfile = await getUserProfile(user.sub ?? "");
         if (userProfile) {
           saveUser({ name: userProfile.Name, email: userProfile.Email });
-          router.replace('/dashboard');
+          // Detect claimable temp users before routing to dashboard
+          const claimable = await checkForClaimableTemps(userProfile.Email, userProfile.Phone);
+          if (claimable.length > 0) {
+            router.replace({ pathname: '/claimTempUsers' as any, params: { ids: JSON.stringify(claimable.map(t => t.id)) } });
+          } else {
+            router.replace('/dashboard');
+          }
         } else {
           router.replace('/setupProfile');
         }

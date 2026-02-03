@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import React from 'react';
 import { UserContext } from './components/userContext'
-import { getUserProfile } from '../firebase/services_firestore2'
+import { getUserProfile, checkForClaimableTemps } from '../firebase/services_firestore2'
 import { SafeAreaWrapper } from './components/SafeAreaWrapper'
 
 export default function Index() {
@@ -18,7 +18,13 @@ export default function Index() {
         const userProfile = await getUserProfile(user.sub)
         if (userProfile) {
           saveUser({name: userProfile.Name, email: userProfile.Email})
-          router.replace('/dashboard');
+          // Detect claimable temp users before routing to dashboard
+          const claimable = await checkForClaimableTemps(userProfile.Email, userProfile.Phone);
+          if (claimable.length > 0) {
+            router.replace({ pathname: '/claimTempUsers' as any, params: { ids: JSON.stringify(claimable.map(t => t.id)) } });
+          } else {
+            router.replace('/dashboard');
+          }
         } else {
           router.replace('/login');
         }
