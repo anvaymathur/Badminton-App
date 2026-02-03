@@ -10,7 +10,7 @@ export default function TabsLayout() {
     '/dashboard',
     '/groups/displayGroups',
     '/events/EventsList',
-    '/matchHistory/viewScore',
+    '/matches/viewScore',
     '/userProfile',
   ];
   const shouldHideTabBar = !topLevelPaths.includes(pathname);
@@ -18,17 +18,23 @@ export default function TabsLayout() {
     <Tabs screenOptions={{ headerShown: false, tabBarStyle: shouldHideTabBar ? { display: 'none' } : undefined }}>
       <Tabs.Screen
         name="dashboard"
-        options={{ 
+        options={{
           tabBarLabel: 'Dashboard',
           tabBarIcon: ({ focused }) => (
             <Ionicons name="home" size={24} color={focused ? 'black' : 'gray'} />
           ),
         }}
-       
+        listeners={{
+          tabPress: (e) => {
+            if (pathname === '/dashboard') {
+              e.preventDefault();
+            }
+          },
+        }}
       />
       <Tabs.Screen
         name="groups"
-        options={{ 
+        options={{
           tabBarLabel: 'Groups',
           tabBarIcon: ({ focused }) => (
             <Ionicons name="people" size={24} color={focused ? 'black' : 'gray'} />
@@ -36,6 +42,10 @@ export default function TabsLayout() {
         }}
         listeners={{
           tabPress: (e) => {
+            if (pathname === '/groups/displayGroups') {
+              e.preventDefault();
+              return;
+            }
             e.preventDefault();
             router.replace('/groups/displayGroups');
           },
@@ -43,7 +53,7 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="events"
-        options={{ 
+        options={{
           tabBarLabel: 'Events',
           tabBarIcon: ({ focused }) => (
             <Ionicons name="calendar" size={24} color={focused ? 'black' : 'gray'} />
@@ -51,33 +61,48 @@ export default function TabsLayout() {
         }}
         listeners={{
           tabPress: (e) => {
+            if (pathname === '/events/EventsList') {
+              e.preventDefault();
+              return;
+            }
             e.preventDefault();
             router.replace('/events/EventsList');
           },
         }}
       />
       <Tabs.Screen
-        name="matchHistory"
-        options={{ 
-          tabBarLabel: 'History',
+        name="matches"
+        options={{
+          tabBarLabel: 'Matches',
           tabBarIcon: ({ focused }) => (
             <Ionicons name="trophy" size={24} color={focused ? 'black' : 'gray'} />
           ),
         }}
         listeners={{
           tabPress: (e) => {
+            if (pathname === '/matches/viewScore') {
+              e.preventDefault();
+              return;
+            }
             e.preventDefault();
-            router.replace('/matchHistory/viewScore');
+            router.replace('/matches/viewScore');
           },
         }}
       />
       <Tabs.Screen
         name="userProfile"
-        options={{ 
+        options={{
           tabBarLabel: 'Profile',
           tabBarIcon: ({ focused }) => (
             <Ionicons name="person" size={24} color={focused ? 'black' : 'gray'} />
           ),
+        }}
+        listeners={{
+          tabPress: (e) => {
+            if (pathname === '/userProfile') {
+              e.preventDefault();
+            }
+          },
         }}
       />
     </Tabs>

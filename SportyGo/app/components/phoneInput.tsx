@@ -25,20 +25,16 @@ export function PhoneInput({ onChange }: PhoneInputProps) {
       inputMode="numeric"
       maxLength={14}
       value={formattedValue}
-      onChangeText={handleChange}
+      onChangeText={(text: any) => handleChange(text)}
       placeholder="Phone"
-      borderColor="$green10"
       borderWidth={1}
       focusStyle={{
         borderWidth: 2,
-        borderColor: '$green10'
       }}
-      background="$green1"
-      placeholderTextColor="$green10"
-      color="$green10"
-      fontSize="$4"
+      background="$color2"
+      placeholderTextColor="$color9"
       p="$3"
-      style={{ borderRadius: 8 }}
+      style={{ borderRadius: 8, fontSize: 16 }}
     />
   )
 }

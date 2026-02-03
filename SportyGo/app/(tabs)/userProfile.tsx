@@ -114,10 +114,12 @@ export default function UserProfileScreen() {
                 name={profile?.Name}
                 editable={false}
                 borderColor="$color9"
-                borderWidth={2}
+                borderWidth={1}
                 backgroundColor="$color9"
                 textColor="$color1"
                 fontSize="$6"
+                b="$2"
+                r="$4"
               />
 
               <Card elevate bordered p="$4" borderWidth={1} borderColor="$borderColor" width="100%" style={{ maxWidth: 560 }} mt="$8">

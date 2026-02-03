@@ -5,7 +5,8 @@
 import React, { useState, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { getEvent, getUserVote, getAllUserProfiles, updateAttendance, getAttendanceRecords, getGroupById, getUsersByIds } from '../../../firebase/services_firestore2';
+import { getEvent, getUserVote, updateAttendance, getAttendanceRecords, getGroupById, getUsersByIds } from '../../../firebase/services_firestore2';
+import { useConnectedUsers } from '../../hooks/useConnectedUsers';
 import { useAuth0 } from 'react-native-auth0';
 import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
 import { YStack, XStack, Text, Card, ScrollView, Button, Paragraph, H3 } from 'tamagui';
@@ -34,6 +35,9 @@ export default function EventAttendance() {
   const [saving, setSaving] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
 
+  // Fetch connected users for fallback and voting checks
+  const { connectedUsers } = useConnectedUsers(userId);
+
   /**
    * Fetches event data and validates admin access
    * Loads event information and checks if current user is the event creator
@@ -41,7 +45,7 @@ export default function EventAttendance() {
   useEffect(() => {
     const fetchEventData = async () => {
       if (!eventId) return;
-      
+
       try {
         setLoading(true);
         const data = await getEvent(eventId);
@@ -97,8 +101,8 @@ export default function EventAttendance() {
 
             const uniqueIds = Array.from(new Set([...individualIds, ...groupMemberIds]));
             const users = await getUsersByIds(uniqueIds).catch(async () => {
-              // Fallback: fetch all users and filter locally
-              const allUsers = await getAllUserProfiles();
+              // Fallback: use connected users and filter locally
+              const allUsers = connectedUsers;
               const setIds = new Set(uniqueIds);
               return allUsers.filter((u: any) => setIds.has(u.id));
             });
@@ -179,7 +183,7 @@ export default function EventAttendance() {
         }
 
         // Voting enabled: include users who voted 'going' or 'maybe'
-        const allUsers = await getAllUserProfiles();
+        const allUsers = connectedUsers;
         const attendanceRecords: AttendanceRecord[] = [];
 
         for (const u of allUsers) {
@@ -209,7 +213,7 @@ export default function EventAttendance() {
     };
 
     fetchAttendanceData();
-  }, [eventData, isAdmin, eventId]);
+  }, [eventData, isAdmin, eventId, connectedUsers]);
 
   /**
    * Toggles attendance status for a specific user
@@ -218,15 +222,15 @@ export default function EventAttendance() {
    * @param {string} userId - The user ID to toggle attendance for
    */
   const toggleAttendance = (userId: string): void => {
-    setAttendanceList(prev => 
-      prev.map(record => 
-        record.userId === userId 
-          ? { 
-              ...record, 
-              hasArrived: !record.hasArrived,
-              // Firestore rejects undefined; we'll normalize to null on save
-              arrivalTime: !record.hasArrived ? new Date() : undefined
-            }
+    setAttendanceList(prev =>
+      prev.map(record =>
+        record.userId === userId
+          ? {
+            ...record,
+            hasArrived: !record.hasArrived,
+            // Firestore rejects undefined; we'll normalize to null on save
+            arrivalTime: !record.hasArrived ? new Date() : undefined
+          }
           : record
       )
     );
@@ -328,7 +332,7 @@ export default function EventAttendance() {
           <Card bg="$color1" borderColor="$borderColor" borderWidth={1} p="$3" mb="$3" style={{ borderRadius: 12 }}>
             <Text style={{ fontSize: 20, fontWeight: 'bold' }} color="$color">{eventData?.Title}</Text>
             <Text style={{ fontSize: 16 }} color="$color10" mt="$1">
-              {eventData?.EventDate ? 
+              {eventData?.EventDate ?
                 (eventData.EventDate.toDate ? eventData.EventDate.toDate().toLocaleString() : new Date(eventData.EventDate).toLocaleString())
                 : 'Date not set'}
             </Text>
