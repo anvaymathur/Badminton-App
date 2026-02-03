@@ -161,7 +161,7 @@ export default function SetupProfile() {
                             <YStack space="$4" width="100%" style={{ maxWidth: 320, alignSelf: 'center' }}>
                                 <Input
                                     value={name}
-                                    onChangeText={setName}
+                                    onChangeText={(text: any) => setName(text)}
                                     onFocus={() => setShowDobPicker(false)}
                                     placeholder="Name"
                                     borderColor="$color6"
@@ -173,14 +173,13 @@ export default function SetupProfile() {
                                     background="$color2"
                                     placeholderTextColor="$color10"
                                     color="$color"
-                                    fontSize="$4"
                                     p="$3"
-                                    style={{ borderRadius: 8 }}
+                                    style={{ borderRadius: 8, fontSize: 16 }}
                                 />
-                                
+
                                 <Input
                                     value={email}
-                                    onChangeText={setEmail}
+                                    onChangeText={(text: any) => setEmail(text)}
                                     onFocus={() => setShowDobPicker(false)}
                                     placeholder="Email"
                                     borderColor="$color6"
@@ -192,11 +191,10 @@ export default function SetupProfile() {
                                     background="$color2"
                                     placeholderTextColor="$color10"
                                     color="$color"
-                                    fontSize="$4"
                                     p="$3"
-                                    style={{ borderRadius: 8 }}
+                                    style={{ borderRadius: 8, fontSize: 16 }}
                                 />
-                                
+
                                 <Button
                     onPress={() => {
                         Keyboard.dismiss()
@@ -229,7 +227,7 @@ export default function SetupProfile() {
                                     inputMode="numeric"
                                     maxLength={10}
                                     value={phone}
-                                    onChangeText={(text) => {
+                                    onChangeText={(text: any) => {
                                         const onlyDigits = text.replace(/\D/g, '')
                                         setPhone(onlyDigits)
                                     }}
@@ -244,9 +242,8 @@ export default function SetupProfile() {
                                     background="$color2"
                                     placeholderTextColor="$color10"
                                     color="$color"
-                                    fontSize="$4"
                                     p="$3"
-                                    style={{ borderRadius: 8 }}
+                                    style={{ borderRadius: 8, fontSize: 16 }}
                                 />
                             </YStack>
 

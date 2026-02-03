@@ -537,7 +537,7 @@ export default function CreateGameSession() {
                     <Input
                       id="title"
                       value={title}
-                      onChangeText={setTitle}
+                      onChangeText={(text: any) => setTitle(text)}
                       placeholder="Enter event title (e.g., 'Weekend Tournament')"
                       autoCapitalize="words"
                       blurOnSubmit={false}
@@ -598,7 +598,7 @@ export default function CreateGameSession() {
                     </Label>
                     <Input
                       value={location}
-                      onChangeText={setLocation}
+                      onChangeText={(text: any) => setLocation(text)}
                       placeholder="Enter game location"
                       autoCapitalize="words"
                       blurOnSubmit={false}
@@ -615,7 +615,7 @@ export default function CreateGameSession() {
                     </Label>
                     <Input
                       value={totalCost}
-                      onChangeText={setTotalCost}
+                      onChangeText={(text: any) => setTotalCost(text)}
                       placeholder="Enter total cost (e.g., 50.00)"
                       keyboardType="numeric"
                       blurOnSubmit={false}
@@ -741,7 +741,7 @@ export default function CreateGameSession() {
                         <Input
                           placeholder="Search group members by name or email..."
                           value={userSearchQuery}
-                          onChangeText={setUserSearchQuery}
+                          onChangeText={(text: any) => setUserSearchQuery(text)}
                           mb={8}
                           bg="$color1"
                           borderColor="$borderColor"

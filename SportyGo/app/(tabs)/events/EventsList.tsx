@@ -404,9 +404,9 @@ export default function EventsList() {
         <YStack bg="$color1" px="$4" py="$3" borderBottomWidth={1} borderColor="$borderColor">
           <Input
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={(text: any) => setSearchQuery(text)}
             placeholder="Search events..."
-            placeholderTextColor="#999"
+            placeholderTextColor="$color10"
             bg="$color1"
             borderWidth={1}
             borderColor="$borderColor"

@@ -101,14 +101,14 @@ export default function ViewMembers() {
         <Input
           placeholder="Search members..."
           value={query}
-          onChangeText={setQuery}
+          onChangeText={(text: any) => setQuery(text)}
           background="$color2"
           borderColor="$color6"
           px="$4"
           py="$3"
           color="$color"
           placeholderTextColor="$color10"
-          fontSize="$4"
+          style={{ fontSize: 16 }}
           mb={10}
         />
 

@@ -254,16 +254,15 @@ export default function CreateGroup() {
               </Text>
               <Input
                 value={groupName}
-                onChangeText={setGroupName}
+                onChangeText={(text: any) => setGroupName(text)}
                 placeholder="Enter group name"
                 borderColor="$color6"
                 borderWidth={1}
                 background="$color2"
                 color="$color"
                 placeholderTextColor="$color10"
-                fontSize="$4"
                 p="$3"
-                style={{ borderRadius: 8 }}
+                style={{ borderRadius: 8, fontSize: 16 }}
               />
             </YStack>
 
@@ -274,7 +273,7 @@ export default function CreateGroup() {
               </Text>
               <TextArea
                 value={description}
-                onChangeText={(text) => {
+                onChangeText={(text: any) => {
                   // Enforce limit based on non-space characters only
                   if (countNonSpaceChars(text) <= DESCRIPTION_LIMIT) {
                     setDescription(text);
@@ -286,11 +285,10 @@ export default function CreateGroup() {
                 background="$color2"
                 color="$color"
                 placeholderTextColor="$color10"
-                fontSize="$4"
                 p="$3"
                 numberOfLines={5}
                 maxLength={150}
-                style={{ borderRadius: 8, textAlignVertical: 'top', minHeight: 120 }}
+                style={{ borderRadius: 8, textAlignVertical: 'top', minHeight: 120, fontSize: 16 }}
               />
               <XStack style={{ justifyContent: 'flex-end' }}>
                 <Text color="$color10" fontSize="$2">
@@ -414,16 +412,15 @@ export default function CreateGroup() {
               </Text>
               <Input
                 value={homeCourt}
-                onChangeText={setHomeCourt}
+                onChangeText={(text: any) => setHomeCourt(text)}
                 placeholder="Enter court location"
                 borderColor="$color6"
                 borderWidth={1}
                 background="$color2"
                 color="$color"
                 placeholderTextColor="$color10"
-                fontSize="$4"
                 p="$3"
-                style={{ borderRadius: 8 }}
+                style={{ borderRadius: 8, fontSize: 16 }}
               />
             </YStack>
 

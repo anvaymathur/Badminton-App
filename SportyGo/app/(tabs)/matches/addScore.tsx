@@ -543,16 +543,15 @@ export default function AddScore() {
                           alignItems="center"
                         >
                           <Input
-                            verticalAlign="center"
+                            verticalAlign="middle"
                             p="$2"
                             bg="transparent"
                             borderColor="transparent"
                             inputMode="numeric"
                             keyboardType="numeric"
                             maxLength={2}
-                            fontSize="$6"
-                            fontWeight="700"
                             value={yourScore.toString()}
+                            style={{ fontSize: 20, fontWeight: '700' }}
                             onFocus={() => {
                               setIsYourScoreFocused(true);
                               if (yourScore === "0") setYourScore("");
@@ -561,7 +560,7 @@ export default function AddScore() {
                               setIsYourScoreFocused(false);
                               if (yourScore === "") setYourScore("0");
                             }}
-                            onChangeText={(text) => {
+                            onChangeText={(text: any) => {
                               const onlyDigits = text.replace(/[^0-9]/g, "");
                               if (onlyDigits === "") {
                                 if (isYourScoreFocused) {
@@ -600,16 +599,15 @@ export default function AddScore() {
                           alignItems="center"
                         >
                           <Input
-                            verticalAlign="center"
+                            verticalAlign="middle"
                             p="$2"
                             bg="transparent"
                             borderColor="transparent"
                             inputMode="numeric"
                             keyboardType="numeric"
                             maxLength={2}
-                            fontSize="$6"
-                            fontWeight="700"
                             value={opponentScore.toString()}
+                            style={{ fontSize: 20, fontWeight: '700' }}
                             onFocus={() => {
                               setIsOpponentScoreFocused(true);
                               if (opponentScore === "0") setOpponentScore("");
@@ -618,7 +616,7 @@ export default function AddScore() {
                               setIsOpponentScoreFocused(false);
                               if (opponentScore === "") setOpponentScore("0");
                             }}
-                            onChangeText={(text) => {
+                            onChangeText={(text: any) => {
                               const onlyDigits = text.replace(/[^0-9]/g, "");
                               if (onlyDigits === "") {
                                 if (isOpponentScoreFocused) {
@@ -741,7 +739,7 @@ export default function AddScore() {
                     </Text>
                     <Input
                       value={tournament}
-                      onChangeText={setTournament}
+                      onChangeText={(text: any) => setTournament(text)}
                       placeholder="Enter tournament name"
                     />
                   </YStack>

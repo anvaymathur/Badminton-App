@@ -87,15 +87,16 @@ export default function DisplayGroups() {
             <Input
               placeholder="Search groups..."
               value={searchQuery}
-              onChangeText={setSearchQuery}
+              onChangeText={(text: any) => setSearchQuery(text)}
               background="$color2"
               borderColor="$color6"
               px="$4"
               py="$3"
               color="$color"
               placeholderTextColor="$color10"
-              fontSize="$4"
-            />
+              style={{ fontSize: 16 }}
+
+/>
           </YStack>
 
           {/* Groups List */}

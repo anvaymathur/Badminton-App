@@ -166,7 +166,6 @@ export default function AddMembers() {
     }
     
     const expiryText = expiryDate.toLocaleString();
-    console.log(maxUses)
     const maxUsesText = maxUses === 'unlimited' ? 'Unlimited uses' : `${maxUsesOptions.find(opt => opt.value === maxUses)?.label}`;
     
     Alert.alert(
@@ -455,7 +454,7 @@ export default function AddMembers() {
                       inputMode="numeric"
                       maxLength={3}
                       value={maxUsesInput}
-                      onChangeText={handleMaxUsesInputChange}
+                      onChangeText={(text: any) => handleMaxUsesInputChange(text)}
                       placeholder="Enter number (1-999)"
                     />
                     <Text color="$color8" fontSize="$3">Or select from options:</Text>
