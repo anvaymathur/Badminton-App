@@ -1,7 +1,49 @@
-// Match history list screen.
-// Renders the user's past matches with avatars, accessible cards, filter/sort controls,
-// and manages picker dialogs, empty states, and the W-L-T summary via supporting hooks.
-import React, { useContext, useMemo, useCallback, useState, useRef, useEffect } from "react";
+/**
+ * viewScore.tsx — Match History Screen
+ *
+ * Main screen for viewing a user's past match results. Located at the
+ * `/(tabs)/matches/viewScore` route inside the bottom-tab navigator.
+ *
+ * ## Features
+ * - Scrollable list of match cards with pull-to-refresh
+ * - W-L-T summary strip (tappable to toggle result filter)
+ * - Sort by newest / oldest
+ * - Advanced filters (result type, date range, time-of-day range) via bottom sheet
+ * - Player avatars with initials fallback and fade-in animation
+ * - Accessibility: aria-labels, focusable cards, screen-reader friendly
+ *
+ * ## Data Pipeline
+ *   Firestore → useMatchHistory (AsyncStorage cache, 10-min TTL)
+ *       → matchHistory[]
+ *       → baseFilteredHistory      (date/time range filters)
+ *       → sortedFilteredHistory    (result filter + sort order)
+ *       → FlatList                 (renders match cards)
+ *       → onViewableItemsChanged   → usePlayerProfiles (batch fetch names/photos)
+ *
+ * ## Navigation
+ * - Tap "+" button        → /matches/addScore
+ * - Tap a match card      → /matches/viewIndividualScore?matchId=<id>
+ * - Tap "Add First Match" → /matches/addScore
+ *
+ * ## Data Type (newMatchHistory)
+ *   { team1: [player1Id, player2Id, score], team2: [player1Id, player2Id, score], date, id }
+ *   Each team is a 3-element tuple. Matches can be 1v1 or 2v2 (second player ID may be empty).
+ *
+ * ## UI States
+ * | State             | Condition                         | Renders                                |
+ * |-------------------|-----------------------------------|----------------------------------------|
+ * | Loading           | loading === true or !userID       | Full-screen spinner                    |
+ * | Error             | errorMessage !== null             | Error card with retry button           |
+ * | Empty (new user)  | matchHistory.length === 0         | "No matches yet" + "Add First Match"  |
+ * | Empty (filtered)  | Matches exist but all filtered out| "No matches match filters" + reset btn|
+ * | Normal            | Has visible matches               | Full list UI                           |
+ *
+ * ## Custom Hooks
+ * - useMatchHistory   — Firestore fetch + AsyncStorage cache + loading/error/refresh state
+ * - usePlayerProfiles — Viewport-aware batch profile fetching + avatar prefetch + name cache
+ * - useMatchFilters   — Sort order, result/date/time filters, pending vs applied state, picker plumbing
+ */
+import React, { useContext, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -24,23 +66,35 @@ import { useRouter } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
 import { Animated, FlatList, Image } from "react-native";
 import { newMatchHistory } from "@/firebase/types_index";
-import { UserContext } from '../../components/userContext';
-import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
+import { UserContext } from '@/components/userContext';
+import { SafeAreaWrapper } from '@/components/SafeAreaWrapper';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useMatchHistory } from "@/app/hooks/useMatchHistory";
-import { usePlayerProfiles } from "@/app/hooks/usePlayerProfiles";
-import { useMatchFilters } from "@/app/hooks/useMatchFilters";
+import { useMatchHistory } from "@/hooks/useMatchHistory";
+import { usePlayerProfiles } from "@/hooks/usePlayerProfiles";
+import { useMatchFilters } from "@/hooks/useMatchFilters";
 
-// Mapping of match outcomes to the accent colour and label used throughout the UI.
+/**
+ * Maps each match outcome to its accent color and display label.
+ * Used for the colored left-border on match cards, outcome chips,
+ * and the W-L-T summary strip at the top of the screen.
+ */
 const MATCH_OUTCOME_STYLES = {
   win: { accent: "#047857", label: "Win" }, // emerald-700
   tie: { accent: "#B45309", label: "Tie" }, // amber-700
   lose: { accent: "#DC2626", label: "Loss" }, // red-600
 } as const;
 
+/** Wraps React Native's Image in Animated so we can fade in profile photos. */
 const AnimatedImage = Animated.createAnimatedComponent(Image);
 
-// Generates initials for avatar fallbacks (first 2 chars of name, uppercase).
+/**
+ * Generates initials for avatar fallbacks.
+ * Takes the first 2 characters of the name (whitespace removed), uppercased.
+ * Returns "??" for empty/whitespace-only strings.
+ *
+ * @example getAvatarInitials("John Doe")  → "JO"
+ * @example getAvatarInitials("")           → "??"
+ */
 const getAvatarInitials = (name: string) => {
   const trimmed = name.trim();
   if (!trimmed) return "??";
@@ -48,8 +102,18 @@ const getAvatarInitials = (name: string) => {
   return compact.slice(0, 2).toUpperCase();
 };
 
-// Normalises Firestore timestamps / ISO strings into Date objects the rest of the module can use.
-// Handles Date objects, strings, and Firestore Timestamp objects (with toDate method).
+/**
+ * Normalises Firestore timestamps / ISO strings into Date objects.
+ *
+ * Supported input formats:
+ * - Native `Date` instances (passed through)
+ * - ISO date strings (parsed via `new Date(string)`)
+ * - Firestore `Timestamp` objects (calls `.toDate()`)
+ * - Rehydrated Firestore timestamps from JSON cache (`{ seconds: number }`)
+ * - Any other truthy value (attempted via `new Date(value)`)
+ *
+ * @returns A valid Date, or `null` if parsing fails / result is NaN.
+ */
 const parseMatchDate = (date: Date | string | any): Date | null => {
   let dateObj: Date | null = null;
 
@@ -73,8 +137,15 @@ const parseMatchDate = (date: Date | string | any): Date | null => {
   return dateObj;
 };
 
-// Formats a match date for display, including time if it was captured alongside the score.
-// If time is 00:00:00, it assumes only date was recorded.
+/**
+ * Formats a match date for display.
+ *
+ * If the time component is midnight (00:00:00), assumes only the date was
+ * recorded and returns date-only format (e.g. "Jan 5, 2026").
+ * Otherwise includes time (e.g. "Jan 5, 2026, 03:30 PM").
+ *
+ * @returns Formatted string, or "Invalid Date" if parsing fails.
+ */
 const formatMatchDate = (date: Date | string | any) => {
   const dateObj = parseMatchDate(date);
   if (!dateObj) return "Invalid Date";
@@ -99,7 +170,13 @@ const formatMatchDate = (date: Date | string | any) => {
   });
 };
 
-// Determines which side the signed-in user played on for the given match (if any).
+/**
+ * Determines which side the signed-in user played on for a given match.
+ *
+ * Checks both player slots in team1 and team2 against the provided userID.
+ *
+ * @returns "team1", "team2", or null if the user didn't participate.
+ */
 const getCurrentUserTeam = (match: newMatchHistory, userID: string | null) => {
   if (!userID) return null;
   if (match.team1[0] === userID || match.team1[1] === userID) return "team1";
@@ -107,7 +184,14 @@ const getCurrentUserTeam = (match: newMatchHistory, userID: string | null) => {
   return null;
 };
 
-// Returns the winning team identifier (or "tie") based purely on the recorded scores.
+/**
+ * Returns the winning team based purely on recorded scores.
+ *
+ * Compares team1[2] (score) vs team2[2] (score).
+ * Falls back to "tie" if either team or score data is missing.
+ *
+ * @returns "team1", "team2", or "tie".
+ */
 const getTeamResult = (match: newMatchHistory) => {
   if (!match?.team1 || !match?.team2) return "tie";
   if (typeof match.team1[2] !== "number" || typeof match.team2[2] !== "number")
@@ -117,8 +201,16 @@ const getTeamResult = (match: newMatchHistory) => {
   return "tie";
 };
 
-// Produces the perspective-aware outcome (win/lose/tie) for the current user.
-// If the user didn't play, it returns the result from Team 1's perspective (or just win/lose for the winner).
+/**
+ * Produces a perspective-aware outcome for the current user.
+ *
+ * Combines `getCurrentUserTeam` and `getTeamResult` to determine:
+ * - If the user participated: "win" / "lose" / "tie" relative to their team.
+ * - If the user didn't participate (spectator view): returns the result from
+ *   Team 1's perspective (team1 won → "win", team2 won → "lose").
+ *
+ * @returns A key of MATCH_OUTCOME_STYLES ("win" | "lose" | "tie").
+ */
 const getMatchOutcome = (
   match: newMatchHistory,
   userID: string | null
@@ -133,9 +225,17 @@ const getMatchOutcome = (
 
 /**
  * PlayerAvatar Component
- * 
- * Renders a circular avatar for a player.
- * Displays initials as a fallback, and fades in the profile image once loaded.
+ *
+ * Renders a circular avatar for a single player.
+ *
+ * Behaviour:
+ * 1. Immediately shows the player's initials (via `getAvatarInitials`) as a fallback.
+ * 2. If `photoUrl` is provided, loads the image in the background.
+ * 3. Once the image fires `onLoad`, fades it in over 220ms using `Animated.timing`.
+ * 4. If `photoUrl` changes (e.g. profile update), resets the opacity and re-animates.
+ *
+ * @param name     - The player's display name (used for initials fallback).
+ * @param photoUrl - URL of the player's profile photo, or null if unavailable.
  */
 const PlayerAvatar = ({ name, photoUrl }: { name: string; photoUrl: string | null }) => {
   const initials = useMemo(() => getAvatarInitials(name), [name]);
@@ -190,21 +290,43 @@ const PlayerAvatar = ({ name, photoUrl }: { name: string; photoUrl: string | nul
 };
 
 /**
- * ViewScore Component
- * 
- * The main screen for viewing match history.
- * Supports filtering by result, date, and time.
- * Displays a summary of the user's record (W-L-T).
+ * ViewScore Component (default export)
+ *
+ * The main screen for viewing match history. Renders the full page including:
+ * - Header bar with title and "add score" button
+ * - W-L-T record summary strip (tappable cards to toggle result filter)
+ * - Sort (newest/oldest) and filter controls
+ * - FlatList of match cards with pull-to-refresh
+ * - Bottom sheet for advanced filters (result, date range, time-of-day)
+ * - Modal dialog for native date/time picker
+ *
+ * Screen layout (top → bottom):
+ *   1. Header bar: "My Matches" + add button
+ *   2. W-L-T summary strip
+ *   3. Sort & filter row (+ active filter summary text)
+ *   4. FlatList of match cards (or empty state)
+ *   5. Filter bottom sheet (modal, opened by "Filters" button)
+ *   6. Date/time picker dialog (modal, opens over the sheet)
  */
 export default function ViewScore() {
-  // Router + auth context give us navigation helpers and the current user id.
+  // ── Auth & Navigation ──────────────────────────────────────────────
+  // useRouter: Expo Router navigation (push to addScore / viewIndividualScore)
+  // useAuth0:  Auth0 user object — user.sub is the unique user ID
+  // UserContext: app-level user profile context (provides display name)
   const router = useRouter();
   const { user } = useAuth0();
   const { globalUser } = useContext(UserContext)
   const userName: string = globalUser?.name ?? "";
   const userID: string = user?.sub ?? "";
 
-  // Centralised data hooks: match history, player metadata, and filter state.
+  // ── Data Hooks ──────────────────────────────────────────────────────
+  // useMatchHistory:   Fetches match records from Firestore. Hydrates from
+  //                    AsyncStorage cache for fast first paint. Provides
+  //                    loading/refreshing/error states and retry/refresh actions.
+  // usePlayerProfiles: Tracks which player IDs are in the FlatList viewport,
+  //                    batch-fetches names + photos from Firestore, caches names.
+  // useMatchFilters:   All filter/sort state — sort order, result filter (W/L/T),
+  //                    date/time ranges, pending vs applied state, picker plumbing.
   const {
     matchHistory,
     loading,
@@ -214,10 +336,20 @@ export default function ViewScore() {
     handleRefresh,
   } = useMatchHistory(userID ?? null);
 
-  const { playerNames, visiblePlayers, onViewableItemsChanged } =
-    usePlayerProfiles();
+  // Collect all unique player IDs from match history for eager fetching.
+  const allPlayerIds = useMemo(() => {
+    const ids = new Set<string>();
+    matchHistory.forEach((match) => {
+      [match.team1[0], match.team1[1], match.team2[0], match.team2[1]].forEach((id) => {
+        if (typeof id === "string" && id.trim()) ids.add(id);
+      });
+    });
+    return Array.from(ids);
+  }, [matchHistory]);
 
-  // Filter and sort state management from custom hook
+  const { playerNames, visiblePlayers, onViewableItemsChanged, profilesLoading } =
+    usePlayerProfiles(allPlayerIds);
+
   const {
     sortOrder,
     setSortOrder,
@@ -260,18 +392,23 @@ export default function ViewScore() {
     setPendingValue,
   } = useMatchFilters();
 
-  // Convenience helpers to resolve display data for player chips within the list.
+  // ── Player Display Helpers ──────────────────────────────────────────
+  // Resolve display name: prefer fetched profile → cached name → raw player ID.
   const getPlayerName = useCallback(
     (playerId: string) => visiblePlayers[playerId]?.name ?? playerNames[playerId] ?? playerId,
     [visiblePlayers, playerNames]
   );
 
+  // Resolve profile photo URL (null if not yet fetched or unavailable).
   const getPlayerPhoto = useCallback(
     (playerId: string) => visiblePlayers[playerId]?.photoUrl ?? null,
     [visiblePlayers]
   );
 
-  // Renders single or double avatars for the teams, gracefully falling back to initials.
+  /**
+   * Renders 1 or 2 PlayerAvatar components for a team row.
+   * Filters out empty/blank player IDs (handles 1v1 matches where player2 is "").
+   */
   const renderPlayerAvatars = useCallback(
     (player1: string, player2?: string) => {
       const playerIds = [player1, player2].filter(
@@ -281,7 +418,7 @@ export default function ViewScore() {
       if (playerIds.length === 0) return null;
 
       return (
-        <XStack space="$2">
+        <XStack gap="$2">
           {playerIds.map((id) => (
             <PlayerAvatar
               key={id}
@@ -295,8 +432,15 @@ export default function ViewScore() {
     [getPlayerName, getPlayerPhoto]
   );
 
-  // Synchronise Tamagui dialog events with the date/time picker coming from React Native.
-  // Updates the pending filter value based on the picker selection.
+  /**
+   * Synchronises Tamagui Dialog events with the native DateTimePicker.
+   *
+   * Called on every picker change event. Handles:
+   * - Dismissal: reverts to previous value and closes the dialog.
+   * - Date selection: normalises to midnight (strips time component).
+   * - Time selection: normalises to epoch date (1970-01-01) so only
+   *   hours/minutes are compared when filtering.
+   */
   const handlePickerChange = useCallback(
     (event: any, selectedDate?: Date) => {
       if (!activePicker) return;
@@ -340,9 +484,24 @@ export default function ViewScore() {
     ]
   );
 
-  // Renders a single match card in the list.
+  /**
+   * Renders a single match card for the FlatList.
+   *
+   * Each card contains:
+   * - Top row: match date + outcome badge (colored dot + "Win"/"Loss"/"Tie")
+   *            and a "View Details >" affordance
+   * - Separator
+   * - Team 1 row: player names, avatars, score, trophy icon if winner
+   * - "VS" badge
+   * - Team 2 row: same layout as Team 1
+   * - Outcome chip (only shown if the signed-in user participated)
+   *
+   * Tapping the card navigates to /matches/viewIndividualScore?matchId=<id>.
+   * The left border is colored by outcome (green/amber/red).
+   */
   const renderItem = useCallback(
     ({ item }: { item: newMatchHistory }) => {
+      // Derive outcome, colors, and which team won for this specific card.
       const outcome = getMatchOutcome(item, userID ?? null);
       const { accent, label } = MATCH_OUTCOME_STYLES[outcome];
       const winningTeam = getTeamResult(item);
@@ -350,6 +509,7 @@ export default function ViewScore() {
       const isUserWinner = userTeam !== null && outcome === "win";
       const isTie = outcome === "tie";
 
+      // Build contextual status text for the outcome chip.
       const statusText = (() => {
         if (isTie) return "🤝 Match ended in a tie";
         if (userTeam && isUserWinner) return "🏆 You won!";
@@ -373,9 +533,9 @@ export default function ViewScore() {
           cursor="pointer"
           hoverStyle={{ elevation: 4, scale: 0.99 }}
           pressStyle={{ elevation: 1, scale: 0.97 }}
-          accessible
-          accessibilityRole="button"
-          accessibilityLabel={`Match on ${formatMatchDate(item.date)}. Tap for details.`}
+          tabIndex={0}
+          role="button"
+          aria-label={`Match on ${formatMatchDate(item.date)}. Tap for details.`}
           onPress={() =>
             (router as any).push({
               pathname: "/matches/viewIndividualScore",
@@ -383,21 +543,21 @@ export default function ViewScore() {
             })
           }
         >
-          <YStack space="$2">
+          <YStack gap="$2">
             {/* Meta row: calendar info on the left and "view details" affordance on the right */}
             <XStack justify="space-between" verticalAlign="center">
               <YStack>
                 <Text fontSize="$3" fontWeight="600" color="$color">
                   {formatMatchDate(item.date)}
                 </Text>
-                <XStack space="$1" verticalAlign="center">
+                <XStack gap="$1" verticalAlign="center">
                   <Ionicons name="ellipse" size={10} color={accent} />
                   <Text fontSize="$2" fontWeight="600" color={accent}>
                     {label}
                   </Text>
                 </XStack>
               </YStack>
-              <XStack verticalAlign="center" space="$1.5">
+              <XStack verticalAlign="center" gap="$1.5">
                 <Text fontSize="$2" color="$color10">
                   View Details
                 </Text>
@@ -408,15 +568,15 @@ export default function ViewScore() {
             <Separator />
 
             {/* Body: stacked layout showing Team 1 / VS / Team 2 with avatars and scores */}
-            <YStack space="$2">
+            <YStack gap="$2">
               {/* Team 1 row */}
-              <XStack justify="space-between" verticalAlign="center" space="$3">
-                <YStack flex={1} space="$1.5">
+              <XStack justify="space-between" verticalAlign="center" gap="$3">
+                <YStack flex={1} gap="$1.5">
                   <Text fontSize="$4" fontWeight="700" color="$color">
                     {getPlayerName(item.team1[0])}
                     {item.team1[1] ? ` & ${getPlayerName(item.team1[1])}` : ""}
                   </Text>
-                  <XStack space="$2" verticalAlign="center">
+                  <XStack gap="$2" verticalAlign="center">
                     {renderPlayerAvatars(item.team1[0], item.team1[1])}
                     <Text fontSize="$3" color="$color10">
                       Team 1
@@ -424,7 +584,7 @@ export default function ViewScore() {
                   </XStack>
                 </YStack>
                 <XStack
-                  space="$2"
+                  gap="$2"
                   verticalAlign="center"
                   justify="flex-end"
                   style={{ minWidth: 56 }}
@@ -454,13 +614,13 @@ export default function ViewScore() {
               </XStack>
 
               {/* Team 2 row */}
-              <XStack justify="space-between" verticalAlign="center" space="$3">
-                <YStack flex={1} space="$1.5">
+              <XStack justify="space-between" verticalAlign="center" gap="$3">
+                <YStack flex={1} gap="$1.5">
                   <Text fontSize="$4" fontWeight="700" color="$color">
                     {getPlayerName(item.team2[0])}
                     {item.team2[1] ? ` & ${getPlayerName(item.team2[1])}` : ""}
                   </Text>
-                  <XStack space="$2" verticalAlign="center">
+                  <XStack gap="$2" verticalAlign="center">
                     {renderPlayerAvatars(item.team2[0], item.team2[1])}
                     <Text fontSize="$3" color="$color10">
                       Team 2
@@ -468,7 +628,7 @@ export default function ViewScore() {
                   </XStack>
                 </YStack>
                 <XStack
-                  space="$2"
+                  gap="$2"
                   verticalAlign="center"
                   justify="flex-end"
                   style={{ minWidth: 56 }}
@@ -503,6 +663,7 @@ export default function ViewScore() {
     [getPlayerName, renderPlayerAvatars, router, userID]
   );
 
+  /** Stable key for FlatList: prefers match ID, falls back to a composite of team IDs + date. */
   const keyExtractor = useCallback((item: newMatchHistory, index: number) => {
     return (
       (item as any).id ||
@@ -511,7 +672,17 @@ export default function ViewScore() {
     );
   }, []);
 
-  // Filters the match history based on date and time ranges.
+  /**
+   * Stage 1 of the filter pipeline: date/time range filtering.
+   *
+   * Applies the active start/end date and start/end time-of-day filters
+   * against the full matchHistory array. This produces the base dataset
+   * used for both the W-L-T summary counts and the result-filtered list.
+   *
+   * Date boundaries are inclusive (start = 00:00:00, end = 23:59:59.999).
+   * Time-of-day is compared as minutes-since-midnight. If the user selects
+   * an inverted range (end < start), the values are swapped automatically.
+   */
   const baseFilteredHistory = useMemo(() => {
     // Convert selected dates into inclusive start/end bounds for easier comparisons.
     const startDateBoundary = filterStartDate
@@ -582,14 +753,20 @@ export default function ViewScore() {
     filterEndTime,
   ]);
 
-  // Applies the result filter (win/loss/tie) and sorts the filtered list.
+  /**
+   * Stage 2 of the filter pipeline: result filter + sort.
+   *
+   * Takes baseFilteredHistory and:
+   * 1. Filters by the selected result type (win/lose/tie/all).
+   * 2. Sorts by date (newest-first or oldest-first based on sortOrder).
+   *
+   * This is the final dataset rendered by the FlatList.
+   */
   const sortedFilteredHistory = useMemo(() => {
     const filtered = baseFilteredHistory.filter((match) => {
-      // Outcome filter: honour the selected win/loss/tie toggle (from the user's perspective).
-      if (resultFilter !== "all" && getMatchOutcome(match, userID ?? null) !== resultFilter) {
-        return false;
-      }
-      return true;
+      // Outcome filter: honor the selected win/loss/tie toggle (from the user's perspective).
+      return !(resultFilter !== "all" && getMatchOutcome(match, userID ?? null) !== resultFilter);
+
     });
 
     return filtered.sort((a, b) => {
@@ -602,9 +779,14 @@ export default function ViewScore() {
     });
   }, [baseFilteredHistory, resultFilter, sortOrder, userID]);
 
-  // Aggregate record used for the W-L-T summary strip at the top of the screen.
-  // We use baseFilteredHistory (date/time filters only) so the counts don't change
-  // when the user toggles W/L/T.
+  /**
+   * W-L-T record summary for the summary strip at the top of the screen.
+   *
+   * Important: uses `baseFilteredHistory` (date/time only), NOT the result-filtered
+   * list. This ensures the W-L-T counts remain stable when the user toggles
+   * the result filter — otherwise tapping "Wins" would show "W: 5, L: 0, T: 0"
+   * which is misleading.
+   */
   const recordSummary = useMemo(() => {
     return baseFilteredHistory.reduce(
       (acc, match) => {
@@ -618,20 +800,23 @@ export default function ViewScore() {
     );
   }, [baseFilteredHistory, userID]);
 
+  // Derived booleans for controlling which empty state to show.
   const hasMatches = matchHistory.length > 0;
   const isFilteredViewEmpty = hasMatches && sortedFilteredHistory.length === 0;
 
-  // Show a full-screen spinner while we bootstrap data or when the user is not fully authenticated yet.
-  if (loading || !userID) {
+  // ── Render: Loading State ──────────────────────────────────────────
+  // Full-screen spinner shown during initial data fetch or when user auth is pending.
+  if (loading || !userID || profilesLoading) {
     return (
-      <YStack flex={1} bg="$background" justify="center" verticalAlign="center" space="$4">
+      <YStack flex={1} bg="$background" justify="center" verticalAlign="center" gap="$4">
         <Spinner size="large" color="$color9" />
         <Text color="$color10">Fetching match history…</Text>
       </YStack>
     );
   }
 
-  // Dedicated error state giving the user an actionable retry button.
+  // ── Render: Error State ─────────────────────────────────────────────
+  // Shown when Firestore fetch failed. Displays the error message and a retry button.
   if (errorMessage) {
     return (
       <SafeAreaWrapper>
@@ -641,7 +826,7 @@ export default function ViewScore() {
             borderWidth={1}
             borderColor="$borderColor"
             alignItems="center"
-            space="$3"
+            gap="$3"
           >
             <Ionicons name="alert-circle" size={32} color="#DC2626" />
             <Text
@@ -664,10 +849,12 @@ export default function ViewScore() {
     );
   }
 
+  // ── Render: Main Screen ─────────────────────────────────────────────
   return (
     <SafeAreaWrapper>
       <View flex={1} bg="$background">
-        {/* Header bar with screen title and quick access to add a new score */}
+        {/* ── 1. Header Bar ─────────────────────────────────────────
+             Screen title "My Matches" + "+" button to navigate to addScore */}
         <XStack
           pr="$4"
           pl="$4"
@@ -688,12 +875,15 @@ export default function ViewScore() {
           />
         </XStack>
 
-        {/* W-L-T summary strip reflects the currently filtered dataset */}
+        {/* ── 2. W-L-T Summary Strip ───────────────────────────────
+             Three tappable cards showing win/loss/tie counts.
+             Tapping one toggles the result filter (tap again to deselect).
+             Counts are colored by outcome and reflect baseFilteredHistory. */}
         <YStack px="$4" py="$3" borderBottomWidth={1} borderBottomColor="$borderColor" bg="$background">
           <Text fontSize="$2" color="$color10">
             Record
           </Text>
-          <XStack space="$3" mt="$2">
+          <XStack gap="$3" mt="$2">
             {[
               { key: "win", label: "W", color: MATCH_OUTCOME_STYLES.win.accent, value: recordSummary.win },
               { key: "lose", label: "L", color: MATCH_OUTCOME_STYLES.lose.accent, value: recordSummary.loss },
@@ -722,21 +912,25 @@ export default function ViewScore() {
           </XStack>
         </YStack>
 
+        {/* ── 3. Sort & Filter Row ──────────────────────────────────
+             Only shown when at least one match exists. Contains:
+             - "Most Recent" / "Oldest" sort toggle buttons
+             - "Filters" button to open the advanced filter bottom sheet
+             - Active filter summary text (when any filter is applied) */}
         {hasMatches && (
-          <YStack px="$4" py="$3" space="$3">
-            {/* Sort + Filters row shown when there is at least one match recorded */}
-            <YStack space="$2">
+          <YStack px="$4" py="$3" gap="$3">
+            <YStack gap="$2">
               <Text fontSize="$2" color="$color10">
                 Sort by
               </Text>
-              <XStack space="$2">
+              <XStack gap="$2">
                 <Button
                   size="$2"
                   bg={sortOrder === "recent" ? "$color9" : "$color3"}
                   color={sortOrder === "recent" ? "$color1" : "$color"}
                   borderColor="$borderColor"
                   onPress={() => setSortOrder("recent")}
-                  accessibilityLabel="Sort by most recent matches"
+                  aria-label="Sort by most recent matches"
                 >
                   Most Recent
                 </Button>
@@ -746,7 +940,7 @@ export default function ViewScore() {
                   color={sortOrder === "oldest" ? "$color1" : "$color"}
                   borderColor="$borderColor"
                   onPress={() => setSortOrder("oldest")}
-                  accessibilityLabel="Sort by oldest matches"
+                  aria-label="Sort by oldest matches"
                 >
                   Oldest
                 </Button>
@@ -757,7 +951,7 @@ export default function ViewScore() {
                   borderColor="$borderColor"
                   icon={<Ionicons name="options-outline" size={16} color={isFilterActive ? "#fff" : undefined} />}
                   onPress={openFilterSheet}
-                  accessibilityLabel="Open match filters"
+                  aria-label="Open match filters"
                 >
                   Filters
                 </Button>
@@ -771,7 +965,11 @@ export default function ViewScore() {
           </YStack>
         )}
 
-        {/* Main list of matches – renders cards plus pull-to-refresh behaviour */}
+        {/* ── 4. Match FlatList ────────────────────────────────────
+             Renders sortedFilteredHistory as match cards. Pull-to-refresh
+             triggers handleRefresh. onViewableItemsChanged feeds player IDs
+             to usePlayerProfiles for viewport-aware avatar prefetching.
+             ListEmptyComponent shows context-appropriate empty state. */}
         <FlatList
           data={sortedFilteredHistory}
           keyExtractor={keyExtractor}
@@ -790,9 +988,9 @@ export default function ViewScore() {
                 borderWidth={1}
                 borderColor="$borderColor"
                 alignItems="center"
-                space="$3"
-                accessible
-                accessibilityLabel="No matches found for the selected filters."
+                gap="$3"
+                tabIndex={0}
+                aria-label="No matches found for the selected filters."
               >
                 <Ionicons name="filter-circle-outline" size={48} color="#666" />
                 <H5 color="$color">No matches match your filters</H5>
@@ -816,12 +1014,12 @@ export default function ViewScore() {
                 backgroundColor="$color2"
                 borderWidth={1}
                 borderColor="$borderColor"
-                accessible
-                accessibilityRole="button"
-                accessibilityLabel="No matches yet. Tap to add your first match."
+                tabIndex={0}
+                role="button"
+                aria-label="No matches yet. Tap to add your first match."
                 onPress={() => router.push('/matches/addScore')}
               >
-                <YStack space="$3" verticalAlign="center">
+                <YStack gap="$3" verticalAlign="center">
                   <Ionicons name="trophy-outline" size={48} color="#666" />
                   <H5 color="$color">No matches yet</H5>
                   <Paragraph color="$color10" style={{ textAlign: "center" }}>
@@ -842,7 +1040,13 @@ export default function ViewScore() {
         />
       </View>
 
-      {/* Bottom sheet housing the advanced filter controls */}
+      {/* ── 5. Filter Bottom Sheet ─────────────────────────────
+           Modal sheet opened by the "Filters" button. Uses PENDING state
+           so selections don't apply until "Apply" is pressed. Contains:
+           - Result type chips (All / Wins / Losses / Ties)
+           - Date range pickers (From / To with clear buttons)
+           - Time-of-day pickers (From / To with clear buttons)
+           - Clear (resets pending) / Apply (commits pending → active) */}
       <Sheet
         modal
         open={filterSheetOpen}
@@ -860,18 +1064,18 @@ export default function ViewScore() {
         <Sheet.Handle />
         <Sheet.Frame p="$4" bg="$background">
           <ScrollView>
-            <YStack space="$4">
+            <YStack gap="$4">
               {/* Sheet header with quick clear/apply actions */}
               <XStack justify="space-between" verticalAlign="center">
                 <Text fontSize="$5" fontWeight="700">
                   Filters
                 </Text>
-                <XStack space="$2">
+                <XStack gap="$2">
                   <Button
                     variant="outlined"
                     size="$2"
                     onPress={clearPendingFilters}
-                    accessibilityLabel="Clear filter selections"
+                    aria-label="Clear filter selections"
                   >
                     Clear
                   </Button>
@@ -880,7 +1084,7 @@ export default function ViewScore() {
                     bg="$color9"
                     color="$color1"
                     onPress={applyFilterChanges}
-                    accessibilityLabel="Apply filters"
+                    aria-label="Apply filters"
                   >
                     Apply
                   </Button>
@@ -888,11 +1092,11 @@ export default function ViewScore() {
               </XStack>
 
               {/* Result type toggle chips */}
-              <YStack space="$2">
+              <YStack gap="$2">
                 <Text fontSize="$3" fontWeight="600">
                   Match result
                 </Text>
-                <XStack space="$2" flexWrap="wrap">
+                <XStack gap="$2" flexWrap="wrap">
                   {[
                     { label: "All results", value: "all" },
                     { label: "Wins", value: "win" },
@@ -916,16 +1120,16 @@ export default function ViewScore() {
               </YStack>
 
               {/* Date range pickers – launch dialogs to choose inclusive start/end dates */}
-              <YStack space="$2">
+              <YStack gap="$2">
                 <Text fontSize="$3" fontWeight="600">
                   Date range
                 </Text>
-                <XStack space="$2" flexWrap="wrap">
+                <XStack gap="$2" flexWrap="wrap">
                   <Button
                     size="$2"
                     variant="outlined"
                     onPress={() => openPicker("startDate")}
-                    accessibilityLabel="Set start date filter"
+                    aria-label="Set start date filter"
                   >
                     From: {formatDateOnly(pendingStartDate)}
                   </Button>
@@ -939,12 +1143,12 @@ export default function ViewScore() {
                     </Button>
                   )}
                 </XStack>
-                <XStack space="$2" flexWrap="wrap">
+                <XStack gap="$2" flexWrap="wrap">
                   <Button
                     size="$2"
                     variant="outlined"
                     onPress={() => openPicker("endDate")}
-                    accessibilityLabel="Set end date filter"
+                    aria-label="Set end date filter"
                   >
                     To: {formatDateOnly(pendingEndDate)}
                   </Button>
@@ -961,19 +1165,19 @@ export default function ViewScore() {
               </YStack>
 
               {/* Time of day pickers – narrow results to a specific window */}
-              <YStack space="$2">
+              <YStack gap="$2">
                 <Text fontSize="$3" fontWeight="600">
                   Time of day
                 </Text>
                 <Paragraph color="$color10">
                   Limit matches to a specific time window (based on recorded start time).
                 </Paragraph>
-                <XStack space="$2" flexWrap="wrap">
+                <XStack gap="$2" flexWrap="wrap">
                   <Button
                     size="$2"
                     variant="outlined"
                     onPress={() => openPicker("startTime")}
-                    accessibilityLabel="Set start time filter"
+                    aria-label="Set start time filter"
                   >
                     From: {formatTimeOnly(pendingStartTime)}
                   </Button>
@@ -987,12 +1191,12 @@ export default function ViewScore() {
                     </Button>
                   )}
                 </XStack>
-                <XStack space="$2" flexWrap="wrap">
+                <XStack gap="$2" flexWrap="wrap">
                   <Button
                     size="$2"
                     variant="outlined"
                     onPress={() => openPicker("endTime")}
-                    accessibilityLabel="Set end time filter"
+                    aria-label="Set end time filter"
                   >
                     To: {formatTimeOnly(pendingEndTime)}
                   </Button>
@@ -1012,7 +1216,12 @@ export default function ViewScore() {
         </Sheet.Frame>
       </Sheet>
 
-      {/* Modal dialog that floats above the sheet to show the native date/time picker */}
+      {/* ── 6. Date/Time Picker Dialog ─────────────────────────
+           Tamagui Dialog that opens OVER the filter sheet when the user
+           taps a date/time selector. Embeds the native DateTimePicker
+           component in "spinner" mode. On Cancel, reverts to the previous
+           value. On Done, confirms the selection and re-opens the filter
+           sheet automatically (via pendingSheetReopenRef in useMatchFilters). */}
       <Dialog
         modal
         open={activePicker !== null}
@@ -1029,7 +1238,7 @@ export default function ViewScore() {
             p="$4"
           >
             {activePicker && (
-              <YStack space="$4" style={{ alignItems: "center" }}>
+              <YStack gap="$4" style={{ alignItems: "center" }}>
                 <Dialog.Title>
                   {activePicker === "startDate"
                     ? "Select start date"
@@ -1047,7 +1256,7 @@ export default function ViewScore() {
                   minimumDate={pickerMinimumDate}
                   onChange={handlePickerChange}
                 />
-                <XStack space="$3">
+                <XStack gap="$3">
                   <Dialog.Close asChild>
                     <Button
                       variant="outlined"

@@ -9,7 +9,7 @@
  * User document interface representing a user profile in Firestore
  */
 export interface UserDoc {
-  id: string; // Auth0 sub
+  id: string; // Auth0 sub for real users; nanoid for temp users
   Name: string;
   Email: string;
   Groups: string[]; // Array of group IDs
@@ -17,6 +17,12 @@ export interface UserDoc {
   Address: string;
   PhotoUrl?: string; // URL to the user photo or Base64 encoded image
   DateOfBirth?: Date;
+
+  // Temporary-user fields (present only on temp user docs)
+  isTemp?: boolean;            // true on all temp users; absent on real users
+  owners?: string[];           // Auth0 subs of users who created / manage this temp
+  claimedBy?: string | null;   // null while active; real user's Auth0 sub after merge
+  createdAt?: Date;            // when the temp doc was first written
 }
 
 /**

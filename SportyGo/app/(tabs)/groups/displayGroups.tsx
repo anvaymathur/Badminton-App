@@ -19,7 +19,7 @@ import { getGroups, getUserGroups } from '../../../firebase/services_firestore2'
 import { useAuth0 } from "react-native-auth0";
 import { router } from "expo-router";
 import { GroupDoc } from '../../../firebase/types_index';
-import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 
 
 function getGroupInitials(name: string) {

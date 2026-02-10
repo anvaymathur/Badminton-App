@@ -9,7 +9,7 @@
 import {
   getFirestore, collection, doc, setDoc, getDoc, updateDoc, writeBatch, onSnapshot,
   increment, arrayUnion, CollectionReference, QueryDocumentSnapshot, DocumentData, getDocs, query, where,
-  Timestamp, deleteDoc, documentId, or
+  Timestamp, deleteDoc, documentId, or, addDoc
 } from "firebase/firestore";
 import { db, storage} from "./index";
 import { UserDoc, GroupDoc, EventDoc, VoteShard, VoteStatus, newMatchHistory, AttendanceRecord, GroupInviteDoc } from "./types_index";
@@ -181,7 +181,7 @@ export async function createUserProfile(uid: string, userDoc: UserDoc): Promise<
  */
 export async function getUserProfile(uid: string): Promise<UserDoc | undefined> {
   const snap = await getDoc(doc(db, "users", uid));
-  return snap.exists() ? (snap.data() as UserDoc) : undefined;
+  return snap.exists() ? { id: snap.id, ...snap.data() } as UserDoc : undefined;
 }
 
 export async function updateUserProfile(uid: string, data: Partial<UserDoc>): Promise<void> {
@@ -832,4 +832,151 @@ export async function addGroupMember(userId: string, groupId: string){
   
   await batch.commit();
   return true;
+}
+
+// --- TEMPORARY USER OPERATIONS ---
+
+/**
+ * Writes a temporary user document into the users collection.
+ * Caller is responsible for generating the uid (nanoid) and populating the doc
+ * with isTemp, owners, and claimedBy fields.
+ */
+export async function createTempUser(userDoc: Omit<UserDoc, 'id'>): Promise<string> {
+  const ref = await addDoc(collection(db, "users"), userDoc);
+  return ref.id;
+}
+
+/**
+ * Finds an unclaimed temp user by normalised email.
+ * Returns undefined if no match or if email is empty.
+ */
+export async function findUnclaimedTempByEmail(email: string): Promise<UserDoc[]> {
+  if (!email || !email.trim()) return [];
+  const usersCol = collection(db, "users");
+  const q = query(usersCol,
+    where("isTemp", "==", true),
+    where("claimedBy", "==", null),
+    where("Email", "==", email.toLowerCase().trim())
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as UserDoc));
+}
+
+/**
+ * Finds an unclaimed temp user by normalised phone (digits only).
+ * Returns undefined if no match or if phone is empty.
+ */
+export async function findUnclaimedTempByPhone(phone: string): Promise<UserDoc[]> {
+  const normalized = phone ? phone.replace(/\D/g, '') : '';
+  if (!normalized) return [];
+  const usersCol = collection(db, "users");
+  const q = query(usersCol,
+    where("isTemp", "==", true),
+    where("claimedBy", "==", null),
+    where("Phone", "==", normalized)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as UserDoc));
+}
+
+/**
+ * Returns all unclaimed temp users owned by the given user.
+ * Used to populate the player picker with temps the current user can reuse.
+ */
+export async function findUnclaimedTempsByOwner(ownerSub: string): Promise<UserDoc[]> {
+  const usersCol = collection(db, "users");
+  const q = query(usersCol,
+    where("isTemp", "==", true),
+    where("claimedBy", "==", null),
+    where("owners", "array-contains", ownerSub)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as UserDoc));
+}
+
+/**
+ * Appends an owner to a temp user's owners array (idempotent via arrayUnion).
+ */
+export async function addTempOwner(tempId: string, ownerSub: string): Promise<void> {
+  return updateDoc(doc(db, "users", tempId), { owners: arrayUnion(ownerSub) });
+}
+
+/**
+ * Marks a temp user as claimed by setting claimedBy to the real user's Auth0 sub.
+ * The document is never deleted — it persists as an audit trail.
+ */
+export async function markTempClaimed(tempId: string, realSub: string): Promise<void> {
+  return updateDoc(doc(db, "users", tempId), { claimedBy: realSub });
+}
+
+/**
+ * Migrates all matchHistory references from oldId to newId.
+ * Replaces oldId with newId in positions 0 and 1 of both team arrays (the player ID slots).
+ * Idempotent: documents where oldId is already gone are skipped.
+ * Returns the number of documents actually updated.
+ */
+export async function migrateMatchRefs(oldId: string, newId: string): Promise<number> {
+  const matchCol = collection(db, "matchHistory");
+  const q = query(matchCol, or(
+    where('team1', 'array-contains', oldId),
+    where('team2', 'array-contains', oldId)
+  ));
+  const snap = await getDocs(q);
+  let updated = 0;
+  for (const matchDoc of snap.docs) {
+    const data = matchDoc.data();
+    const team1 = [...(data.team1 || [])];
+    const team2 = [...(data.team2 || [])];
+    let changed = false;
+    if (team1[0] === oldId) { team1[0] = newId; changed = true; }
+    if (team1[1] === oldId) { team1[1] = newId; changed = true; }
+    if (team2[0] === oldId) { team2[0] = newId; changed = true; }
+    if (team2[1] === oldId) { team2[1] = newId; changed = true; }
+    if (changed) {
+      await updateDoc(doc(db, "matchHistory", matchDoc.id), { team1, team2 });
+      updated++;
+    }
+  }
+  return updated;
+}
+
+/**
+ * Merges the absorbed temp user into the survivor:
+ *   1. Rewrites all match references from absorbed → survivor
+ *   2. Unions the absorbed temp's owners onto the survivor
+ *   3. Marks the absorbed temp as claimed with a synthetic merge marker
+ */
+export async function mergeTempUsers(survivorId: string, absorbedId: string): Promise<void> {
+  await migrateMatchRefs(absorbedId, survivorId);
+
+  const absorbedSnap = await getDoc(doc(db, "users", absorbedId));
+  if (absorbedSnap.exists()) {
+    const absorbedOwners: string[] = absorbedSnap.data()?.owners || [];
+    if (absorbedOwners.length > 0) {
+      await updateDoc(doc(db, "users", survivorId), { owners: arrayUnion(...absorbedOwners) });
+    }
+  }
+
+  await updateDoc(doc(db, "users", absorbedId), { claimedBy: `__merged:${survivorId}` });
+}
+
+/**
+ * Shared detection helper: finds all unclaimed temp users whose Email or Phone
+ * matches the given values. Deduplicates by ID (both queries may return the same doc).
+ * Used by the login / signup flow to decide whether to show the claiming screen.
+ */
+export async function checkForClaimableTemps(email: string, phone: string): Promise<UserDoc[]> {
+  const [byEmail, byPhone] = await Promise.all([
+    findUnclaimedTempByEmail(email),
+    findUnclaimedTempByPhone(phone),
+  ]);
+  const seen = new Set<string>();
+  const results: UserDoc[] = [];
+  for (const tempDoc of [...byEmail, ...byPhone]) {
+    if (!seen.has(tempDoc.id)) {
+      seen.add(tempDoc.id);
+      results.push(tempDoc);
+    }
+  }
+  return results;
 }

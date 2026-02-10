@@ -47,7 +47,7 @@ export default function TabsLayout() {
               return;
             }
             e.preventDefault();
-            router.replace('/groups/displayGroups');
+            router.replace('/(tabs)/groups/displayGroups');
           },
         }}
       />
@@ -66,7 +66,7 @@ export default function TabsLayout() {
               return;
             }
             e.preventDefault();
-            router.replace('/events/EventsList');
+            router.replace('/(tabs)/events/EventsList');
           },
         }}
       />
@@ -85,7 +85,7 @@ export default function TabsLayout() {
               return;
             }
             e.preventDefault();
-            router.replace('/matches/viewScore');
+            router.replace('/(tabs)/matches/viewScore');
           },
         }}
       />

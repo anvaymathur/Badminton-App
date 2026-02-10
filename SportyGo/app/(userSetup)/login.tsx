@@ -1,24 +1,38 @@
-import React, { useContext, useEffect } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { useAuth0 } from 'react-native-auth0';
 import { router } from 'expo-router';
 import { View, YStack, Card, Button, Text, Paragraph, H2, H3, Image, Spinner } from 'tamagui';
-import { UserContext } from "../components/userContext";
-import {getUserProfile} from "../../firebase/services_firestore2";
-import { SafeAreaWrapper } from "../components/SafeAreaWrapper";
+import { UserContext } from "@/components/userContext";
+import {getUserProfile, checkForClaimableTemps} from "../../firebase/services_firestore2";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 
 
 export default function LoginScreen() {
   const { authorize, user, error, isLoading, clearSession } = useAuth0();
   const {globalUser, saveUser} = useContext(UserContext);
+  const [navigating, setNavigating] = useState(false);
+
   useEffect(() => {
     if (!isLoading && user) {
+      setNavigating(true);
       (async () => {
-        const userProfile = await getUserProfile(user.sub ?? "");
-        if (userProfile) {
-          saveUser({ name: userProfile.Name, email: userProfile.Email });
-          router.replace('/dashboard');
-        } else {
-          router.replace('/setupProfile');
+        try {
+          const userProfile = await getUserProfile(user.sub ?? "");
+          if (userProfile) {
+            saveUser({ name: userProfile.Name, email: userProfile.Email });
+            // Detect claimable temp users before routing to dashboard
+            const claimable = await checkForClaimableTemps(userProfile.Email, userProfile.Phone);
+            if (claimable.length > 0) {
+              router.replace({ pathname: '/claimTempUsers' as any, params: { ids: JSON.stringify(claimable.map(t => t.id)) } });
+            } else {
+              router.replace('/dashboard');
+            }
+          } else {
+            router.replace('/setupProfile');
+          }
+        } catch (e) {
+          console.error('Login: profile lookup failed', e);
+          setNavigating(false);
         }
       })();
     }
@@ -54,12 +68,12 @@ export default function LoginScreen() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || navigating) {
       return (
         <SafeAreaWrapper backgroundColor="$background">
           <YStack flex={1} p="$4" space="$2" style={{ justifyContent: 'center', alignItems: 'center' }}>
-            <Spinner color="$color9" />
-            <Text color="$color10">Loading...</Text>
+            <Spinner size="large" color="$color9" />
+            <Text color="$color10">{user ? 'Signing you in…' : 'Loading…'}</Text>
           </YStack>
         </SafeAreaWrapper>
       )

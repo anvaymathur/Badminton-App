@@ -3,12 +3,12 @@ import React, { useContext, useEffect, useState } from "react";
 import { Button, Input, YStack, XStack, Text, H2, View } from 'tamagui'
 import { router } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
-import { PhoneInput } from "../components/phoneInput";
+import { PhoneInput } from "@/components/phoneInput";
 import { UserDoc } from '../../firebase/types_index';
-import { createUserProfile, getUserProfile, updateUserProfile } from '../../firebase/services_firestore2';
-import { UserContext } from "../components/userContext";
-import { SafeAreaWrapper } from "../components/SafeAreaWrapper";
-import { PhotoAvatar } from "../components/PhotoAvatar";
+import { createUserProfile, getUserProfile, updateUserProfile, checkForClaimableTemps } from '../../firebase/services_firestore2';
+import { UserContext } from "@/components/userContext";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
+import { PhotoAvatar } from "@/components/PhotoAvatar";
 import DateTimePicker from '@react-native-community/datetimepicker'
 
 
@@ -98,7 +98,13 @@ export default function SetupProfile() {
                 delete (user as any)["https://badmintonapp.com/is_signup"]
             } catch {}
             await saveUser({name: name, email: email})
-            router.replace('/dashboard')
+            // Detect claimable temp users before routing to dashboard
+            const claimable = await checkForClaimableTemps(email, phone);
+            if (claimable.length > 0) {
+                router.replace({ pathname: '/claimTempUsers' as any, params: { ids: JSON.stringify(claimable.map(t => t.id)) } });
+            } else {
+                router.replace('/dashboard')
+            }
         } else {
             Alert.alert(
                 "Missing Information",
@@ -137,8 +143,8 @@ export default function SetupProfile() {
                             return false
                         }}
                     >
-                        <YStack space="$6" verticalAlign="center" flex={1}>
-                            <YStack space="$5" style={{ alignItems: 'center', paddingTop: 8 }}>
+                        <YStack gap="$6" verticalAlign="center" flex={1}>
+                            <YStack gap="$5" style={{ alignItems: 'center', paddingTop: 8 }}>
                                 <H2 color="$color9" fontWeight="bold" mb="$8">
                                     Create Profile
                                 </H2>
@@ -158,7 +164,7 @@ export default function SetupProfile() {
                                 />
                             </YStack>
 
-                            <YStack space="$4" width="100%" style={{ maxWidth: 320, alignSelf: 'center' }}>
+                            <YStack gap="$4" width="100%" style={{ maxWidth: 320, alignSelf: 'center' }}>
                                 <Input
                                     value={name}
                                     onChangeText={(text: any) => setName(text)}
@@ -173,7 +179,8 @@ export default function SetupProfile() {
                                     background="$color2"
                                     placeholderTextColor="$color10"
                                     color="$color"
-                                    p="$3"
+                                    p="$2"
+                                    pl="$3"
                                     style={{ borderRadius: 8, fontSize: 16 }}
                                 />
 
@@ -191,7 +198,8 @@ export default function SetupProfile() {
                                     background="$color2"
                                     placeholderTextColor="$color10"
                                     color="$color"
-                                    p="$3"
+                                    p="$2"
+                                    pl="$3"
                                     style={{ borderRadius: 8, fontSize: 16 }}
                                 />
 
@@ -242,7 +250,8 @@ export default function SetupProfile() {
                                     background="$color2"
                                     placeholderTextColor="$color10"
                                     color="$color"
-                                    p="$3"
+                                    p="$2"
+                                    pl="$3"
                                     style={{ borderRadius: 8, fontSize: 16 }}
                                 />
                             </YStack>

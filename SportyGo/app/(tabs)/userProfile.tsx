@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { YStack, XStack, Text, Card, Button, Paragraph, H2, Separator, ScrollView, Spinner } from 'tamagui';
-import { SafeAreaWrapper } from "../components/SafeAreaWrapper";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 import { useAuth0 } from 'react-native-auth0';
 import { getUserProfile } from '../../firebase/services_firestore2';
 import { UserDoc } from '../../firebase/types_index';
-import { PhotoAvatar } from "../components/PhotoAvatar";
+import { PhotoAvatar } from "@/components/PhotoAvatar";
 import { Ionicons } from '@expo/vector-icons';
 import { Linking } from 'react-native';
 import { onSnapshot, doc } from 'firebase/firestore';

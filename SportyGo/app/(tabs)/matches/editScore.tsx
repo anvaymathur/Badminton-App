@@ -10,7 +10,6 @@ import {
   Paragraph,
   ScrollView,
   Input,
-  Select,
   Sheet,
   Spinner,
 } from "tamagui";
@@ -20,12 +19,11 @@ import {
   getMatchHistoryById,
   updateMatchHistory,
   getUserProfilesByIds,
-} from "../../../firebase/services_firestore2";
-import { useConnectedUsers } from "../../hooks/useConnectedUsers";
+} from "@/firebase/services_firestore2";
+import { useConnectedUsers } from "@/hooks/useConnectedUsers";
 import { useAuth0 } from "react-native-auth0";
 import type { newMatchHistory, UserDoc } from "@/firebase/types_index";
-import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
-import { Adapt } from "@tamagui/adapt";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Alert, Platform } from "react-native";
 

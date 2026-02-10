@@ -6,7 +6,7 @@ import { getGroupInvite, addGroupMember, getGroupById } from "../../../firebase/
 
 import { useAuth0 } from "react-native-auth0";
 import { GroupInviteDoc } from "../../../firebase/types_index";
-import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 
 export default function GroupInviteScreen() {
   const localParams = useLocalSearchParams<{ inviteCode?: string }>();

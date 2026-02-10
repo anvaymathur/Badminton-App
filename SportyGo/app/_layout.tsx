@@ -3,7 +3,7 @@ import { Auth0Provider } from "react-native-auth0";
 import config from '../tamagui.config'
 import React from "react";
 import { TamaguiProvider, Theme } from "tamagui";
-import { UserProvider } from "./components/userContext";
+import { UserProvider } from "@/components/userContext";
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PortalProvider } from '@tamagui/portal';
 import constants from "./constants";
@@ -21,6 +21,7 @@ export default function RootLayout() {
                   <Stack screenOptions={{ headerShown: false }}>
                     <Stack.Screen name="index"  />
                     <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="(userSetup)" />
                   </Stack>
                 </Theme>
               </PortalProvider>

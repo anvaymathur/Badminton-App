@@ -17,7 +17,7 @@ import { router } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
 import { createGroup, uploadImage, testStorageConnection, imageToBase64 } from '../../../firebase/services_firestore2';
 import { GroupDoc } from '../../../firebase/types_index';
-import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
+import { SafeAreaWrapper } from '@/components/SafeAreaWrapper';
 import { Ionicons } from "@expo/vector-icons";
 
 

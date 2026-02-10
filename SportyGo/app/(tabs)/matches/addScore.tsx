@@ -17,19 +17,19 @@ import {
   Paragraph,
   Circle,
   Separator,
-  Dialog,
-  Adapt
+  Dialog
 } from "tamagui";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
 import { createMatchHistory } from '@/firebase/services_firestore2';
-import { useConnectedUsers } from '../../hooks/useConnectedUsers';
-import { newMatchHistory, UserDoc } from '@/firebase/types_index';
-import { Alert, Platform } from "react-native";
+import { useConnectedUsers } from '@/hooks/useConnectedUsers';
+import { useTempUsers } from '@/hooks/useTempUsers';
+import { newMatchHistory} from '@/firebase/types_index';
+import { Alert, Keyboard, Platform, TouchableWithoutFeedback } from "react-native";
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { UserContext } from '../../components/userContext';
-import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
+import { UserContext } from '@/components/userContext';
+import { SafeAreaWrapper } from '@/components/SafeAreaWrapper';
 
 
 /**
@@ -68,11 +68,11 @@ function PlayerPicker({ value, onValueChange, items, placeholder, label }: { val
         dismissOnSnapToBottom
         zIndex={200000}
       >
-        <Sheet.Frame p="$4" space="$4">
+        <Sheet.Frame p="$4" gap="$4">
           <Sheet.Handle />
           <H5>{label}</H5>
           <Sheet.ScrollView>
-            <YStack space="$2">
+            <YStack gap="$2">
               {items.map((item, idx) => (
                 <Button
                   key={`${item}-${idx}`}
@@ -274,9 +274,26 @@ export default function AddScore() {
   // Fetch connected users (friends/group members) to populate the player selection list.
   const { connectedUsers } = useConnectedUsers(user?.sub);
 
-  // Effect to process connected users into a flat list of names and a name-to-ID map.
+  // Temp user integration: owned temps for the picker + creation flow
+  const { ownedTemps, createOrReuseTempUser } = useTempUsers(user?.sub);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [qaName, setQaName] = useState('');
+  const [qaEmail, setQaEmail] = useState('');
+  const [qaPhone, setQaPhone] = useState('');
+  const [qaSubmitting, setQaSubmitting] = useState(false);
+  const [qaKeyboardOpen, setQaKeyboardOpen] = useState(false);
+
   useEffect(() => {
-    if (connectedUsers.length === 0) return;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setQaKeyboardOpen(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setQaKeyboardOpen(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
+
+  // Effect to process connected users and owned temp users into a flat list of names and a name-to-ID map.
+  useEffect(() => {
+    if (connectedUsers.length === 0 && ownedTemps.length === 0) return;
 
     const processPlayers = () => {
       let nameFromProfiles = "";
@@ -301,6 +318,18 @@ export default function AddScore() {
         }
       });
 
+      // Merge owned temp users into the player list.
+      // Suffix with " (Guest)" if the name collides with an existing real user.
+      ownedTemps.forEach(temp => {
+        const displayName = uniqueNames.includes(temp.Name)
+          ? `${temp.Name} (Guest)`
+          : temp.Name;
+        if (!uniqueNames.includes(displayName)) {
+          uniqueNames.push(displayName);
+          nameToIdMap[displayName] = temp.id;
+        }
+      });
+
       setPlayers(uniqueNames);
       setPlayerNameToId(nameToIdMap);
 
@@ -318,7 +347,7 @@ export default function AddScore() {
     };
 
     processPlayers();
-  }, [connectedUsers, user?.sub]);
+  }, [connectedUsers, user?.sub, ownedTemps]);
 
   useEffect(() => {
     if (showDatePicker || showTimePicker) {
@@ -437,6 +466,17 @@ export default function AddScore() {
       const team2Player1Id = playerNameToId[opponentPlayer1];
       const team2Player2Id = matchType === 'doubles' ? (playerNameToId[opponentPlayer2]) : '';
 
+      // Ownership gate: every player ID must have been resolved through the picker.
+      // This blocks any state-manipulated IDs that aren't in the verified set.
+      const resolvedIds = new Set([...Object.values(playerNameToId), userID]);
+      const idsToCheck = [team1Player1Id, team1Player2Id, team2Player1Id, team2Player2Id].filter(id => id !== '');
+      for (const pid of idsToCheck) {
+        if (!resolvedIds.has(pid)) {
+          Alert.alert("Permission denied", "One or more players could not be verified. Please select players from the list.");
+          return;
+        }
+      }
+
       // Construct match data object
       const matchData: newMatchHistory = {
         team1: [team1Player1Id, team1Player2Id, parseInt(yourScore)],
@@ -447,7 +487,7 @@ export default function AddScore() {
 
       // Save to Firestore
       await createMatchHistory(matchData);
-      router.replace('/matches/viewScore')
+      router.replace('/(tabs)/matches/viewScore')
     } else {
       Alert.alert(
         "Missing Information",
@@ -493,9 +533,9 @@ export default function AddScore() {
         </XStack>
 
         <ScrollView flex={1} p="$4" showsVerticalScrollIndicator={false}>
-          <YStack pb="$12" space="$4">
+          <YStack pb="$12" gap="$4">
             <Card padding="$4" backgroundColor="$background" borderWidth={1} borderColor="$borderColor">
-              <YStack space="$1">
+              <YStack gap="$1">
                 <Paragraph fontSize="$2" color="$color10">
                   Step {currentStep + 1} of {totalSteps}
                 </Paragraph>
@@ -508,50 +548,61 @@ export default function AddScore() {
 
             {currentStep === 1 && (
               <Card
-                padding="$5"
+                padding="$4"
                 backgroundColor="$background"
                 borderWidth={1}
                 borderColor="$borderColor"
                 borderRadius="$4"
               >
-                <YStack space="$5" verticalAlign="stretch">
-                  <YStack verticalAlign="center" space="$2">
-                    <H5 color="$color9">Game Score</H5>
-                    <Paragraph color="$color10" style={{ textAlign: "center" }}>
-                      Enter the final numbers for each team.
-                    </Paragraph>
-                  </YStack>
-
+                <YStack gap="$4">
+                  {/* --- Your Team --- */}
                   <Card
                     padding="$4"
-                    backgroundColor="$color3"
+                    backgroundColor="$color2"
                     borderRadius="$4"
+                    borderWidth={1}
                     borderColor="$borderColor"
                   >
-                    <YStack space="$4">
-                      <XStack
-                        verticalAlign="center"
-                        justify="center"
-                        space="$4"
-                        flexWrap="wrap"
-                      >
+                    <YStack gap="$3">
+                      <XStack verticalAlign="center" gap="$2">
+                        <Ionicons name="people" size={16} color="#065F46" />
+                        <Text fontSize="$4" fontWeight="700" color="$color">
+                          {yourTeamLabel}
+                        </Text>
+                      </XStack>
+
+                      <Separator borderColor="$borderColor" />
+
+                      <XStack verticalAlign="center" justify="space-between">
+                        <Circle
+                          size="$5"
+                          bg="$color3"
+                          borderWidth={1}
+                          borderColor="$borderColor"
+                          pressStyle={{ bg: "$color4" }}
+                          onPress={() => decrementScore("your")}
+                        >
+                          <Ionicons name="remove" size={22} color="#065F46" />
+                        </Circle>
+
                         <Card
                           padding="$2"
-                          backgroundColor="$background"
+                          backgroundColor="$color3"
                           borderRadius="$4"
-                          minWidth={88}
+                          minWidth={100}
                           alignItems="center"
                         >
                           <Input
-                            verticalAlign="middle"
-                            p="$2"
+                            textAlign="center"
+                            p="$0"
                             bg="transparent"
                             borderColor="transparent"
                             inputMode="numeric"
                             keyboardType="numeric"
                             maxLength={2}
                             value={yourScore.toString()}
-                            style={{ fontSize: 20, fontWeight: '700' }}
+                            style={{ fontSize: 40, fontWeight: '800' }}
+                            color="$color"
                             onFocus={() => {
                               setIsYourScoreFocused(true);
                               if (yourScore === "0") setYourScore("");
@@ -576,38 +627,82 @@ export default function AddScore() {
                           />
                         </Card>
 
-                        <Card
-                          padding="$2"
-                          backgroundColor="$background"
-                          borderRadius="$3"
-                          borderColor="$borderColor"
-                          minWidth={64}
-                          height={64}
-                          alignItems="center"
-                          justifyContent="center"
+                        <Circle
+                          size="$5"
+                          bg="$color9"
+                          pressStyle={{ bg: "$color10" }}
+                          onPress={() => incrementScore("your")}
                         >
-                          <Text fontWeight="700" fontSize="$4" color="$color9">
-                            VS
-                          </Text>
-                        </Card>
+                          <Ionicons name="add" size={22} color="white" />
+                        </Circle>
+                      </XStack>
+                    </YStack>
+                  </Card>
+
+                  {/* --- VS Badge --- */}
+                  <XStack justify="center" verticalAlign="center">
+                    <Card
+                      paddingHorizontal="$4"
+                      paddingVertical="$2"
+                      bg="$color9"
+                      borderRadius="$3"
+                      alignItems="center"
+                      elevation={1}
+                    >
+                      <Text fontWeight="800" color="$color1" fontSize="$5">
+                        VS
+                      </Text>
+                    </Card>
+                  </XStack>
+
+                  {/* --- Opponent Team --- */}
+                  <Card
+                    padding="$4"
+                    backgroundColor="$color2"
+                    borderRadius="$4"
+                    borderWidth={1}
+                    borderColor="$borderColor"
+                  >
+                    <YStack gap="$3">
+                      <XStack verticalAlign="center" gap="$2">
+                        <Ionicons name="people-outline" size={16} color="#065F46" />
+                        <Text fontSize="$4" fontWeight="700" color="$color">
+                          {opponentTeamLabel}
+                        </Text>
+                      </XStack>
+
+                      <Separator borderColor="$borderColor" />
+
+                      <XStack verticalAlign="center" justify="space-between">
+                        <Circle
+                          size="$5"
+                          bg="$color3"
+                          borderWidth={1}
+                          borderColor="$borderColor"
+                          pressStyle={{ bg: "$color4" }}
+                          onPress={() => decrementScore("opponent")}
+                        >
+                          <Ionicons name="remove" size={22} color="#065F46" />
+                        </Circle>
 
                         <Card
                           padding="$2"
-                          backgroundColor="$background"
+                          backgroundColor="$color3"
                           borderRadius="$4"
-                          minWidth={88}
+                          minWidth={100}
                           alignItems="center"
                         >
                           <Input
-                            verticalAlign="middle"
-                            p="$2"
+                            textAlign="center"
+                            p="$0"
                             bg="transparent"
                             borderColor="transparent"
                             inputMode="numeric"
                             keyboardType="numeric"
                             maxLength={2}
                             value={opponentScore.toString()}
-                            style={{ fontSize: 20, fontWeight: '700' }}
+                            style={{ fontSize: 40, fontWeight: '800' }}
+                            color="$color"
                             onFocus={() => {
                               setIsOpponentScoreFocused(true);
                               if (opponentScore === "0") setOpponentScore("");
@@ -631,62 +726,22 @@ export default function AddScore() {
                             }}
                           />
                         </Card>
-                      </XStack>
 
-                      <XStack
-                        verticalAlign="center"
-                        justify="space-between"
-                        space="$6"
-                        flexWrap="wrap"
-                      >
-                        <XStack verticalAlign="center" space="$3">
-                          <Circle
-                            size="$4"
-                            bg="$color9"
-                            onPress={() => decrementScore("your")}
-                          >
-                            <Ionicons name="remove" size={18} color="white" />
-                          </Circle>
-                          <Circle
-                            size="$4"
-                            bg="$color9"
-                            onPress={() => incrementScore("your")}
-                          >
-                            <Ionicons name="add" size={18} color="white" />
-                          </Circle>
-                        </XStack>
-
-                        <XStack verticalAlign="center" space="$3">
-                          <Circle
-                            size="$4"
-                            bg="$color9"
-                            onPress={() => decrementScore("opponent")}
-                          >
-                            <Ionicons name="remove" size={18} color="white" />
-                          </Circle>
-                          <Circle
-                            size="$4"
-                            bg="$color9"
-                            onPress={() => incrementScore("opponent")}
-                          >
-                            <Ionicons name="add" size={18} color="white" />
-                          </Circle>
-                        </XStack>
-                      </XStack>
-
-                      <XStack justify="space-between" flexWrap="wrap">
-                        <Text fontSize="$3" fontWeight="600">
-                          {yourTeamLabel}
-                        </Text>
-                        <Text fontSize="$3" fontWeight="600">
-                          {opponentTeamLabel}
-                        </Text>
+                        <Circle
+                          size="$5"
+                          bg="$color9"
+                          pressStyle={{ bg: "$color10" }}
+                          onPress={() => incrementScore("opponent")}
+                        >
+                          <Ionicons name="add" size={22} color="white" />
+                        </Circle>
                       </XStack>
                     </YStack>
                   </Card>
 
-                  <Paragraph color="$color10" style={{ textAlign: "center" }}>
-                    Use the plus and minus icons or tap the score to type it in.
+                  {/* --- Hint --- */}
+                  <Paragraph color="$color10" fontSize="$2" text="center">
+                    Tap a score to type it in, or use the buttons to adjust.
                   </Paragraph>
                 </YStack>
               </Card>
@@ -694,11 +749,11 @@ export default function AddScore() {
 
             {currentStep === 2 && (
               <Card padding="$5" backgroundColor="$background" borderWidth={1} borderColor="$borderColor">
-                <YStack space="$4">
+                <YStack gap="$4">
                   <H5 color="$color9">Match Setup</H5>
 
                   {/* Date & time selectors open modal pickers when tapped */}
-                  <YStack space="$2">
+                  <YStack gap="$2">
                     <Text fontSize="$3" fontWeight="500">
                       Date
                     </Text>
@@ -733,7 +788,7 @@ export default function AddScore() {
                   </YStack>
 
                   {/* Optional tournament metadata */}
-                  <YStack space="$2">
+                  <YStack gap="$2">
                     <Text fontSize="$3" fontWeight="500">
                       Tournament/Event (Optional)
                     </Text>
@@ -749,15 +804,15 @@ export default function AddScore() {
 
             {currentStep === 0 && (
               <Card padding="$5" backgroundColor="$background" borderWidth={1} borderColor="$borderColor">
-                <YStack space="$4">
+                <YStack gap="$4">
                   <H5 color="$color9">Select Players</H5>
 
                   {/* Toggle between singles and doubles presets */}
-                  <YStack space="$2">
+                  <YStack gap="$2">
                     <Text fontSize="$3" fontWeight="500">
                       Match Type
                     </Text>
-                    <XStack space="$2">
+                    <XStack gap="$2">
                       <Button
                         flex={1}
                         bg={matchType === "singles" ? "$color9" : "$color3"}
@@ -782,7 +837,7 @@ export default function AddScore() {
                   </YStack>
 
                   {/* User team selectors */}
-                  <YStack space="$3">
+                  <YStack gap="$3">
                     <Text fontSize="$3" fontWeight="500">
                       {matchType === "singles" ? "You" : "Your Team"}
                     </Text>
@@ -812,7 +867,7 @@ export default function AddScore() {
                   </YStack>
 
                   {/* Opponent team selectors */}
-                  <YStack space="$3">
+                  <YStack gap="$3">
                     <Text fontSize="$3" fontWeight="500">
                       {matchType === "singles" ? "Opponent" : "Opponent Team"}
                     </Text>
@@ -843,17 +898,146 @@ export default function AddScore() {
                     )}
                   </YStack>
 
-                  {/* Placeholder quick add – reserved for future enhancements */}
+                  {/* Quick Add Player – creates or reuses a temp user */}
                   <Button
                     bg="$color9"
                     onPress={() => {
-                      // Placeholder for future quick add functionality
+                      setQaName('');
+                      setQaEmail('');
+                      setQaPhone('');
+                      setShowQuickAdd(true);
                     }}
                     mt="$1"
                     color="$color1"
                   >
                     Quick Add Player
                   </Button>
+
+                  {/* Quick Add modal sheet */}
+                  <Sheet
+                    modal
+                    open={showQuickAdd}
+                    onOpenChange={setShowQuickAdd}
+                    snapPoints={[qaKeyboardOpen ? 95 : 55]}
+                    dismissOnSnapToBottom
+                    zIndex={200000}
+                  >
+                    <Sheet.Frame p="$4" gap="$4">
+                      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                      <View flex={1}>
+                      <Sheet.Handle />
+                      <H5>Add a Player</H5>
+                      <Paragraph color="$color10" fontSize="$3">
+                        Enter their details. If they already exist, we will reuse the existing entry.
+                      </Paragraph>
+                      <YStack gap="$3">
+                        <Input
+                          value={qaName}
+                          onChangeText={(text: any) => setQaName(text)}
+                          placeholder="Name *"
+                          borderColor="$color6"
+                          borderWidth={1}
+                          background="$color2"
+                          color="$color"
+                          placeholderTextColor="$color10"
+                          p="$3"
+                          style={{ borderRadius: 8, fontSize: 16 }}
+                        />
+                        <Input
+                          value={qaEmail}
+                          onChangeText={(text: any) => setQaEmail(text)}
+                          placeholder="Email"
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          borderColor="$color6"
+                          borderWidth={1}
+                          background="$color2"
+                          color="$color"
+                          placeholderTextColor="$color10"
+                          p="$3"
+                          style={{ borderRadius: 8, fontSize: 16 }}
+                        />
+                        <Input
+                          value={qaPhone}
+                          onChangeText={(text: any) => {
+                            const digits = text.replace(/\D/g, '');
+                            setQaPhone(digits);
+                          }}
+                          placeholder="Phone"
+                          keyboardType="numeric"
+                          inputMode="numeric"
+                          borderColor="$color6"
+                          borderWidth={1}
+                          background="$color2"
+                          color="$color"
+                          placeholderTextColor="$color10"
+                          p="$3"
+                          style={{ borderRadius: 8, fontSize: 16 }}
+                        />
+                        <Paragraph color="$color10" fontSize="$2">
+                          At least one of Email or Phone is required.
+                        </Paragraph>
+                      </YStack>
+                      <XStack gap="$3" mt="$2">
+                        <Button flex={1} variant="outlined" onPress={() => setShowQuickAdd(false)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          flex={1}
+                          bg="$color9"
+                          color="$color1"
+                          disabled={qaSubmitting}
+                          onPress={async () => {
+                            Keyboard.dismiss();
+                            if (!qaName.trim()) {
+                              Alert.alert("Missing name", "Please enter a display name.");
+                              return;
+                            }
+                            if (!qaEmail.trim() && !qaPhone.trim()) {
+                              Alert.alert("Missing contact", "Please enter at least an email or phone number.");
+                              return;
+                            }
+                            setQaSubmitting(true);
+                            try {
+                              const resolved = await createOrReuseTempUser(qaName.trim(), qaEmail.trim(), qaPhone.trim());
+                              // Check if this user (by ID) is already in the player list
+                              const existingName = Object.entries(playerNameToId).find(([, id]) => id === resolved.id)?.[0];
+                              if (existingName) {
+                                Alert.alert("Already added", `${existingName} is already in the player list.`);
+                                return;
+                              }
+
+                              const displayName = players.includes(resolved.Name)
+                                ? `${resolved.Name} (Guest)`
+                                : resolved.Name;
+                              setPlayers(prev => prev.includes(displayName) ? prev : [...prev, displayName]);
+                              setPlayerNameToId(prev => ({ ...prev, [displayName]: resolved.id }));
+
+                              // Auto-assign to next empty slot
+                              if (!opponentPlayer1) {
+                                setOpponentPlayer1(displayName);
+                              } else if (matchType === "doubles" && !yourPlayer2) {
+                                setYourPlayer2(displayName);
+                              } else if (matchType === "doubles" && !opponentPlayer2) {
+                                setOpponentPlayer2(displayName);
+                              }
+
+                              setShowQuickAdd(false);
+                            } catch (e) {
+                              console.error('Quick Add failed', e);
+                              Alert.alert("Error", "Failed to add player. Please try again.");
+                            } finally {
+                              setQaSubmitting(false);
+                            }
+                          }}
+                        >
+                          {qaSubmitting ? 'Adding...' : 'Add Player'}
+                        </Button>
+                      </XStack>
+                      </View>
+                      </TouchableWithoutFeedback>
+                    </Sheet.Frame>
+                  </Sheet>
                 </YStack>
               </Card>
             )}
@@ -885,7 +1069,7 @@ export default function AddScore() {
                 <Paragraph color="$color10" mt="$2" mb="$3">
                   Choose the date this match was played.
                 </Paragraph>
-                <YStack space="$3" style={{ alignItems: "center" }} key="date-stack">
+                <YStack gap="$3" style={{ alignItems: "center" }} key="date-stack">
                   <DateTimePicker
                     value={draftDate}
                     mode="date"
@@ -899,7 +1083,7 @@ export default function AddScore() {
                       height: Platform.OS === "ios" ? 180 : 140
                     }}
                   />
-                  <XStack space="$3" key="date-buttons">
+                  <XStack gap="$3" key="date-buttons">
                     <Dialog.Close key="date-cancel" asChild>
                       <Button
                         key="date-cancel-button"
@@ -953,7 +1137,7 @@ export default function AddScore() {
                 <Paragraph color="$color10" mt="$2" mb="$3">
                   Choose the start time for this match.
                 </Paragraph>
-                <YStack space="$3" style={{ alignItems: "center" }} key="time-stack">
+                <YStack gap="$3" style={{ alignItems: "center" }} key="time-stack">
                   <DateTimePicker
                     value={draftDate}
                     mode="time"
@@ -966,7 +1150,7 @@ export default function AddScore() {
                       height: Platform.OS === "ios" ? 180 : 140
                     }}
                   />
-                  <XStack space="$3" key="time-buttons">
+                  <XStack gap="$3" key="time-buttons">
                     <Dialog.Close key="time-cancel" asChild>
                       <Button
                         key="time-cancel-button"
@@ -1013,7 +1197,7 @@ export default function AddScore() {
             <View width={88} />
           )}
 
-          <XStack space="$3" verticalAlign="center">
+          <XStack gap="$3" verticalAlign="center">
             {currentStep === 1 && (
               <Button
                 size="$3"

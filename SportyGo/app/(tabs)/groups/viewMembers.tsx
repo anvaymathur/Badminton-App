@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { GroupDoc, UserDoc } from "../../../firebase/types_index";
 import { getGroupById, getUsersByIds } from "../../../firebase/services_firestore2";
-import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 
 function getInitials(name: string) {
   if (!name) return "?";

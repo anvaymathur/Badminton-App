@@ -6,6 +6,7 @@ export default function AuthLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
       <Stack.Screen name="setupProfile" />
+      <Stack.Screen name="claimTempUsers" />
     </Stack>
   );
 }

@@ -6,9 +6,9 @@ import React, { useState, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { getEvent, getUserVote, updateAttendance, getAttendanceRecords, getGroupById, getUsersByIds } from '../../../firebase/services_firestore2';
-import { useConnectedUsers } from '../../hooks/useConnectedUsers';
+import { useConnectedUsers } from '@/hooks/useConnectedUsers';
 import { useAuth0 } from 'react-native-auth0';
-import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
+import { SafeAreaWrapper } from '@/components/SafeAreaWrapper';
 import { YStack, XStack, Text, Card, ScrollView, Button, Paragraph, H3 } from 'tamagui';
 
 

@@ -24,7 +24,7 @@ import { Picker } from '@react-native-picker/picker';
 import { createGroupInvite } from "../../../firebase/services_firestore2";
 import { GroupInviteDoc } from "../../../firebase/types_index";
 import { nanoid } from "nanoid/non-secure";
-import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 
 export default function AddMembers() {
   const [inviteLink, setInviteLink] = useState('');

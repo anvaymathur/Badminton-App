@@ -1,11 +1,11 @@
 import { useContext, useEffect, useState } from 'react';
 import { useAuth0 } from 'react-native-auth0';
 import { router } from 'expo-router';
-import { View, Text, StyleSheet } from 'react-native';
 import React from 'react';
-import { UserContext } from './components/userContext'
-import { getUserProfile } from '../firebase/services_firestore2'
-import { SafeAreaWrapper } from './components/SafeAreaWrapper'
+import { YStack, Text, Spinner } from 'tamagui';
+import { UserContext } from '@/components/userContext'
+import { getUserProfile, checkForClaimableTemps } from '../firebase/services_firestore2'
+import { SafeAreaWrapper } from '@/components/SafeAreaWrapper'
 
 export default function Index() {
   const { user, isLoading } = useAuth0();
@@ -18,7 +18,13 @@ export default function Index() {
         const userProfile = await getUserProfile(user.sub)
         if (userProfile) {
           saveUser({name: userProfile.Name, email: userProfile.Email})
-          router.replace('/dashboard');
+          // Detect claimable temp users before routing to dashboard
+          const claimable = await checkForClaimableTemps(userProfile.Email, userProfile.Phone);
+          if (claimable.length > 0) {
+            router.replace({ pathname: '/claimTempUsers' as any, params: { ids: JSON.stringify(claimable.map(t => t.id)) } });
+          } else {
+            router.replace('/dashboard');
+          }
         } else {
           router.replace('/login');
         }
@@ -32,22 +38,11 @@ export default function Index() {
     }
   }, [user, isLoading, initializing]);
   return (
-    <SafeAreaWrapper backgroundColor="#F5FCFF">
-      <View style={styles.container}>
-        <Text style={styles.text}>Loading...</Text>
-      </View>
+    <SafeAreaWrapper backgroundColor="$background">
+      <YStack flex={1} p="$4" gap="$2" justifyContent="center" alignItems="center">
+        <Spinner size="large" color="$color9" />
+        <Text color="$color10">Loading…</Text>
+      </YStack>
     </SafeAreaWrapper>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F5FCFF',
-  },
-  text: {
-    fontSize: 16,
-  },
-});
