@@ -3,7 +3,7 @@ import { Alert } from 'react-native';
 import { Avatar, Button, Text, YStack } from 'tamagui';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { imageToBase64 } from '../../firebase/services_firestore2';
+import { imageToBase64 } from '@/firebase/services_firestore2';
 
 /**
  * Extracts the payload portion from an "INITIALS:XX" style reference.

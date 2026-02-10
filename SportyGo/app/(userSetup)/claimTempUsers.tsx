@@ -4,9 +4,9 @@ import { YStack, XStack, Text, Card, Button, H2, Paragraph, ScrollView, Spinner 
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getUserProfile, getUserMatchHistory, migrateMatchRefs, markTempClaimed } from "../../firebase/services_firestore2";
-import { UserDoc } from "../../firebase/types_index";
-import { SafeAreaWrapper } from "../components/SafeAreaWrapper";
+import { getUserProfile, getUserMatchHistory, migrateMatchRefs, markTempClaimed } from "@/firebase/services_firestore2";
+import { UserDoc } from "@/firebase/types_index";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 import { Ionicons } from "@expo/vector-icons";
 
 interface TempPreview {
@@ -111,9 +111,9 @@ export default function ClaimTempUsers() {
 
   return (
     <SafeAreaWrapper backgroundColor="$background">
-      <YStack flex={1} p="$4" space="$4">
+      <YStack flex={1} p="$4" gap="$4">
         {/* Header */}
-        <YStack space="$2" mt="$4">
+        <YStack gap="$2" mt="$4">
           <H2 color="$color9">We found your players</H2>
           <Paragraph color="$color10">
             These temporary players match your email or phone number. Claim the ones that belong to you — their match history will transfer to your account.
@@ -122,10 +122,10 @@ export default function ClaimTempUsers() {
 
         {/* Scrollable list of temp users */}
         <ScrollView flex={1} showsVerticalScrollIndicator={false}>
-          <YStack space="$3">
+          <YStack gap="$3">
             {previews.map((item, index) => (
               <Card
-                key={item.doc.id}
+                key={`${item.doc.id}-${index}`}
                 elevate
                 bordered
                 p="$4"
@@ -134,23 +134,23 @@ export default function ClaimTempUsers() {
                 bg={item.claimed ? "$color2" : "$color1"}
               >
                 <XStack verticalAlign="center" justify="space-between">
-                  <YStack flex={1} space="$1">
+                  <YStack flex={1} gap="$1">
                     <Text color="$color" fontSize="$5" fontWeight="600">
                       {item.doc.Name}
                     </Text>
                     {item.doc.Email ? (
-                      <XStack verticalAlign="center" space="$2">
+                      <XStack verticalAlign="center" gap="$2">
                         <Ionicons name="mail-outline" size={14} color="#888" />
                         <Text color="$color10" fontSize="$3">{item.doc.Email}</Text>
                       </XStack>
                     ) : null}
                     {item.doc.Phone ? (
-                      <XStack verticalAlign="center" space="$2">
+                      <XStack verticalAlign="center" gap="$2">
                         <Ionicons name="call-outline" size={14} color="#888" />
                         <Text color="$color10" fontSize="$3">{item.doc.Phone}</Text>
                       </XStack>
                     ) : null}
-                    <XStack verticalAlign="center" space="$2" mt="$1">
+                    <XStack verticalAlign="center" gap="$2" mt="$1">
                       <Ionicons name="trophy-outline" size={14} color="#888" />
                       <Text color="$color10" fontSize="$3">
                         {item.matchCount} {item.matchCount === 1 ? "match" : "matches"} played
@@ -166,7 +166,7 @@ export default function ClaimTempUsers() {
                     borderColor="$color9"
                     borderWidth={1}
                     onPress={() => toggleClaim(index)}
-                    minWidth={80}
+                    minW={80}
                   >
                     {item.claimed ? "Claimed" : "Claim"}
                   </Button>
@@ -177,7 +177,7 @@ export default function ClaimTempUsers() {
         </ScrollView>
 
         {/* Action buttons */}
-        <YStack space="$3" pb="$4">
+        <YStack gap="$3" pb="$4">
           <Button
             size="$5"
             bg="$color9"

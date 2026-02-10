@@ -9,7 +9,7 @@
 import {
   getFirestore, collection, doc, setDoc, getDoc, updateDoc, writeBatch, onSnapshot,
   increment, arrayUnion, CollectionReference, QueryDocumentSnapshot, DocumentData, getDocs, query, where,
-  Timestamp, deleteDoc, documentId, or
+  Timestamp, deleteDoc, documentId, or, addDoc
 } from "firebase/firestore";
 import { db, storage} from "./index";
 import { UserDoc, GroupDoc, EventDoc, VoteShard, VoteStatus, newMatchHistory, AttendanceRecord, GroupInviteDoc } from "./types_index";
@@ -181,7 +181,7 @@ export async function createUserProfile(uid: string, userDoc: UserDoc): Promise<
  */
 export async function getUserProfile(uid: string): Promise<UserDoc | undefined> {
   const snap = await getDoc(doc(db, "users", uid));
-  return snap.exists() ? (snap.data() as UserDoc) : undefined;
+  return snap.exists() ? { id: snap.id, ...snap.data() } as UserDoc : undefined;
 }
 
 export async function updateUserProfile(uid: string, data: Partial<UserDoc>): Promise<void> {
@@ -841,8 +841,9 @@ export async function addGroupMember(userId: string, groupId: string){
  * Caller is responsible for generating the uid (nanoid) and populating the doc
  * with isTemp, owners, and claimedBy fields.
  */
-export async function createTempUser(uid: string, userDoc: UserDoc): Promise<void> {
-  return setDoc(doc(db, "users", uid), userDoc);
+export async function createTempUser(userDoc: Omit<UserDoc, 'id'>): Promise<string> {
+  const ref = await addDoc(collection(db, "users"), userDoc);
+  return ref.id;
 }
 
 /**

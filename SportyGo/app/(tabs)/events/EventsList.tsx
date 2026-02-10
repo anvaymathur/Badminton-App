@@ -13,7 +13,7 @@ import { listenGroupEvents, listenUserGroupEvents, listenAllEvents, getVoteCount
 import { VoteStatus } from '../../../firebase/types_index';
 import { useAuth0 } from 'react-native-auth0';
 import { YStack, XStack, Text, Card, ScrollView, Button, Input, Paragraph, H2 } from 'tamagui';
-import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
+import { SafeAreaWrapper } from '@/components/SafeAreaWrapper';
 
 /**
  * Interface for mapped event data used in the UI

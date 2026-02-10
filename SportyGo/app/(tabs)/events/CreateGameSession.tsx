@@ -11,11 +11,11 @@ import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router } from 'expo-router';
 import { createEvent, getUserGroups } from '../../../firebase/services_firestore2';
-import { useConnectedUsers } from '../../hooks/useConnectedUsers';
+import { useConnectedUsers } from '@/hooks/useConnectedUsers';
 import { GroupDoc, UserDoc } from '../../../firebase/types_index';
 import { useAuth0 } from 'react-native-auth0';
 import { YStack, XStack, Button, Input, Label, Paragraph, H2, Text, Card, ScrollView } from 'tamagui';
-import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
+import { SafeAreaWrapper } from '@/components/SafeAreaWrapper';
 
 /**
  * Interface for form validation errors

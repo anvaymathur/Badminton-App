@@ -23,7 +23,7 @@ import {
   getUserProfile,
 } from "../../../firebase/services_firestore2";
 import type { newMatchHistory } from "@/firebase/types_index";
-import { SafeAreaWrapper } from "../../components/SafeAreaWrapper";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 
 // Lightweight profile model used to render names + avatars alongside scores.
 // Lightweight profile model used to render names + avatars alongside scores.

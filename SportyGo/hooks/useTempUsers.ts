@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { v4 as uuidv4 } from 'uuid';
 import {
   createTempUser,
   findUnclaimedTempByEmail,
@@ -8,7 +7,7 @@ import {
   addTempOwner,
   mergeTempUsers,
 } from '@/firebase/services_firestore2';
-import { UserDoc } from '@/firebase/types_index';
+
 
 interface TempUserSummary {
   id: string;
@@ -78,9 +77,7 @@ export function useTempUsers(ownerSub: string | undefined) {
 
     // Case A: no existing match → create
     if (!emailMatch && !phoneMatch) {
-      const id = uuidv4();
-      const newDoc: UserDoc = {
-        id,
+      const id = await createTempUser({
         Name: name,
         Email: normalizedEmail,
         Phone: normalizedPhone,
@@ -90,8 +87,7 @@ export function useTempUsers(ownerSub: string | undefined) {
         owners: [ownerSub],
         claimedBy: null,
         createdAt: new Date(),
-      };
-      await createTempUser(id, newDoc);
+      });
       refreshTemps();
       return { id, Name: name };
     }

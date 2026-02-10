@@ -33,7 +33,7 @@ const PLAYER_NAMES_CACHE_KEY = "playerNames";
  * - `visiblePlayers`: A map of player IDs to `PlayerProfileDisplay` objects (fetched on demand).
  * - `onViewableItemsChanged`: A callback to be passed to the `FlatList`'s `onViewableItemsChanged` prop.
  */
-export function usePlayerProfiles() {
+export function usePlayerProfiles(eagerIds: string[] = []) {
   // Cached name lookups let us show player labels even before Firestore responds.
   const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
   // Map of user id -> profile data required for avatar rendering.
@@ -46,6 +46,9 @@ export function usePlayerProfiles() {
   const [visibleIdsVersion, setVisibleIdsVersion] = useState(0);
   // Boolean ref ensures we only hydrate the cached names once.
   const loadedNamesFromCacheRef = useRef(false);
+  // Eager fetch tracking
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const eagerFetchedIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (loadedNamesFromCacheRef.current) return;
@@ -78,6 +81,79 @@ export function usePlayerProfiles() {
       cancelled = true;
     };
   }, []);
+
+  // Eager fetch: resolve names for all provided IDs upfront so the UI never shows raw IDs.
+  useEffect(() => {
+    const newIds = eagerIds.filter(
+      (id) => id && id.trim() !== "" && !eagerFetchedIdsRef.current.has(id)
+    );
+    if (newIds.length === 0) return;
+
+    // Check if all new IDs already have names (from cache or previous fetches)
+    const unresolved = newIds.filter((id) => !playerNames[id] && !visiblePlayers[id]);
+    if (unresolved.length === 0) {
+      newIds.forEach((id) => eagerFetchedIdsRef.current.add(id));
+      return;
+    }
+
+    let cancelled = false;
+    setProfilesLoading(true);
+
+    const fetchEager = async () => {
+      try {
+        const map = await getUserProfilesByIds(unresolved);
+        if (cancelled) return;
+
+        const newProfiles: Record<string, PlayerProfileDisplay> = {};
+        const newNameCache: Record<string, string> = {};
+
+        for (const id of unresolved) {
+          const profile = map[id];
+          if (profile) {
+            if (profile.PhotoUrl) {
+              Image.prefetch(profile.PhotoUrl).catch(() => {});
+            }
+            newProfiles[id] = {
+              name: profile.Name ?? id,
+              photoUrl: profile.PhotoUrl ?? null,
+            };
+            newNameCache[id] = profile.Name ?? id;
+          } else {
+            newProfiles[id] = { name: id };
+          }
+        }
+
+        if (Object.keys(newProfiles).length > 0) {
+          setVisiblePlayers((prev) => ({ ...prev, ...newProfiles }));
+        }
+        if (Object.keys(newNameCache).length > 0) {
+          setPlayerNames((prev) => {
+            const merged = { ...prev, ...newNameCache };
+            AsyncStorage.setItem(
+              PLAYER_NAMES_CACHE_KEY,
+              JSON.stringify({ ts: Date.now(), data: merged })
+            ).catch(() => {});
+            return merged;
+          });
+        }
+
+        // Seed into visibleIdsRef so viewport-based effect doesn't re-fetch
+        for (const id of unresolved) {
+          visibleIdsRef.current.add(id);
+        }
+      } catch {
+        // Fall back to IDs if fetch fails
+      } finally {
+        if (!cancelled) {
+          newIds.forEach((id) => eagerFetchedIdsRef.current.add(id));
+          setProfilesLoading(false);
+        }
+      }
+    };
+
+    fetchEager();
+    return () => { cancelled = true; };
+  }, [eagerIds, playerNames, visiblePlayers]);
 
   // Callback plugged into FlatList viewability tracking so we know which player ids to prefetch.
   const onViewableItemsChanged = useCallback(
@@ -185,8 +261,10 @@ export function usePlayerProfiles() {
       visiblePlayers,
       // Hook consumers pass this through to FlatList so we can track which ids need data.
       onViewableItemsChanged,
+      // True while the eager fetch for initial IDs is in progress.
+      profilesLoading,
     }),
-    [playerNames, visiblePlayers, onViewableItemsChanged]
+    [playerNames, visiblePlayers, onViewableItemsChanged, profilesLoading]
   );
 }
 

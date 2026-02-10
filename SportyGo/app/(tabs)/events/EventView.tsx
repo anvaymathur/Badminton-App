@@ -9,9 +9,9 @@ import { useAuth0 } from 'react-native-auth0';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../../firebase/index';
 import { castVote, listenVoteCounts, getEvent, getUserVote, hasEventStarted } from '../../../firebase/services_firestore2';
-import { useConnectedUsers } from '../../hooks/useConnectedUsers';
+import { useConnectedUsers } from '@/hooks/useConnectedUsers';
 import { VoteStatus } from '../../../firebase/types_index';
-import { SafeAreaWrapper } from '../../components/SafeAreaWrapper';
+import { SafeAreaWrapper } from '@/components/SafeAreaWrapper';
 import { YStack, XStack, Text, Paragraph, H3, Card, Button, ScrollView, Separator, Spinner, Theme } from 'tamagui';
 import { deleteEvent } from '../../../firebase/services_firestore2';
 

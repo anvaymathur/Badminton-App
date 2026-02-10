@@ -2,9 +2,9 @@ import React, { useContext, useEffect } from "react";
 import { useAuth0 } from 'react-native-auth0';
 import { router } from 'expo-router';
 import { View, YStack, Card, Button, Text, Paragraph, H2, H3, Image, Spinner } from 'tamagui';
-import { UserContext } from "../components/userContext";
+import { UserContext } from "@/components/userContext";
 import {getUserProfile, checkForClaimableTemps} from "../../firebase/services_firestore2";
-import { SafeAreaWrapper } from "../components/SafeAreaWrapper";
+import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 
 
 export default function LoginScreen() {
@@ -60,12 +60,12 @@ export default function LoginScreen() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || user) {
       return (
         <SafeAreaWrapper backgroundColor="$background">
           <YStack flex={1} p="$4" space="$2" style={{ justifyContent: 'center', alignItems: 'center' }}>
-            <Spinner color="$color9" />
-            <Text color="$color10">Loading...</Text>
+            <Spinner size="large" color="$color9" />
+            <Text color="$color10">{user ? 'Signing you in…' : 'Loading…'}</Text>
           </YStack>
         </SafeAreaWrapper>
       )
