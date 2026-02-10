@@ -1,4 +1,4 @@
-import React, { useContext, useEffect } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { useAuth0 } from 'react-native-auth0';
 import { router } from 'expo-router';
 import { View, YStack, Card, Button, Text, Paragraph, H2, H3, Image, Spinner } from 'tamagui';
@@ -10,21 +10,29 @@ import { SafeAreaWrapper } from "@/components/SafeAreaWrapper";
 export default function LoginScreen() {
   const { authorize, user, error, isLoading, clearSession } = useAuth0();
   const {globalUser, saveUser} = useContext(UserContext);
+  const [navigating, setNavigating] = useState(false);
+
   useEffect(() => {
     if (!isLoading && user) {
+      setNavigating(true);
       (async () => {
-        const userProfile = await getUserProfile(user.sub ?? "");
-        if (userProfile) {
-          saveUser({ name: userProfile.Name, email: userProfile.Email });
-          // Detect claimable temp users before routing to dashboard
-          const claimable = await checkForClaimableTemps(userProfile.Email, userProfile.Phone);
-          if (claimable.length > 0) {
-            router.replace({ pathname: '/claimTempUsers' as any, params: { ids: JSON.stringify(claimable.map(t => t.id)) } });
+        try {
+          const userProfile = await getUserProfile(user.sub ?? "");
+          if (userProfile) {
+            saveUser({ name: userProfile.Name, email: userProfile.Email });
+            // Detect claimable temp users before routing to dashboard
+            const claimable = await checkForClaimableTemps(userProfile.Email, userProfile.Phone);
+            if (claimable.length > 0) {
+              router.replace({ pathname: '/claimTempUsers' as any, params: { ids: JSON.stringify(claimable.map(t => t.id)) } });
+            } else {
+              router.replace('/dashboard');
+            }
           } else {
-            router.replace('/dashboard');
+            router.replace('/setupProfile');
           }
-        } else {
-          router.replace('/setupProfile');
+        } catch (e) {
+          console.error('Login: profile lookup failed', e);
+          setNavigating(false);
         }
       })();
     }
@@ -60,7 +68,7 @@ export default function LoginScreen() {
     }
   };
 
-  if (isLoading || user) {
+  if (isLoading || navigating) {
       return (
         <SafeAreaWrapper backgroundColor="$background">
           <YStack flex={1} p="$4" space="$2" style={{ justifyContent: 'center', alignItems: 'center' }}>

@@ -850,8 +850,8 @@ export async function createTempUser(userDoc: Omit<UserDoc, 'id'>): Promise<stri
  * Finds an unclaimed temp user by normalised email.
  * Returns undefined if no match or if email is empty.
  */
-export async function findUnclaimedTempByEmail(email: string): Promise<UserDoc | undefined> {
-  if (!email || !email.trim()) return undefined;
+export async function findUnclaimedTempByEmail(email: string): Promise<UserDoc[]> {
+  if (!email || !email.trim()) return [];
   const usersCol = collection(db, "users");
   const q = query(usersCol,
     where("isTemp", "==", true),
@@ -859,18 +859,16 @@ export async function findUnclaimedTempByEmail(email: string): Promise<UserDoc |
     where("Email", "==", email.toLowerCase().trim())
   );
   const snap = await getDocs(q);
-  if (snap.empty) return undefined;
-  const first = snap.docs[0];
-  return { id: first.id, ...first.data() } as UserDoc;
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as UserDoc));
 }
 
 /**
  * Finds an unclaimed temp user by normalised phone (digits only).
  * Returns undefined if no match or if phone is empty.
  */
-export async function findUnclaimedTempByPhone(phone: string): Promise<UserDoc | undefined> {
+export async function findUnclaimedTempByPhone(phone: string): Promise<UserDoc[]> {
   const normalized = phone ? phone.replace(/\D/g, '') : '';
-  if (!normalized) return undefined;
+  if (!normalized) return [];
   const usersCol = collection(db, "users");
   const q = query(usersCol,
     where("isTemp", "==", true),
@@ -878,9 +876,7 @@ export async function findUnclaimedTempByPhone(phone: string): Promise<UserDoc |
     where("Phone", "==", normalized)
   );
   const snap = await getDocs(q);
-  if (snap.empty) return undefined;
-  const first = snap.docs[0];
-  return { id: first.id, ...first.data() } as UserDoc;
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as UserDoc));
 }
 
 /**
@@ -976,8 +972,8 @@ export async function checkForClaimableTemps(email: string, phone: string): Prom
   ]);
   const seen = new Set<string>();
   const results: UserDoc[] = [];
-  for (const tempDoc of [byEmail, byPhone]) {
-    if (tempDoc && !seen.has(tempDoc.id)) {
+  for (const tempDoc of [...byEmail, ...byPhone]) {
+    if (!seen.has(tempDoc.id)) {
       seen.add(tempDoc.id);
       results.push(tempDoc);
     }

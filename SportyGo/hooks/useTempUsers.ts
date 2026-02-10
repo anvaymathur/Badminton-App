@@ -69,11 +69,13 @@ export function useTempUsers(ownerSub: string | undefined) {
     const normalizedEmail = email ? email.toLowerCase().trim() : '';
     const normalizedPhone = phone ? phone.replace(/\D/g, '') : '';
 
-    // Run both lookups in parallel
-    const [emailMatch, phoneMatch] = await Promise.all([
-      normalizedEmail ? findUnclaimedTempByEmail(normalizedEmail) : undefined,
-      normalizedPhone ? findUnclaimedTempByPhone(normalizedPhone) : undefined,
+    // Run both lookups in parallel, take first match from each
+    const [emailMatches, phoneMatches] = await Promise.all([
+      normalizedEmail ? findUnclaimedTempByEmail(normalizedEmail) : [],
+      normalizedPhone ? findUnclaimedTempByPhone(normalizedPhone) : [],
     ]);
+    const emailMatch = emailMatches[0] ?? undefined;
+    const phoneMatch = phoneMatches[0] ?? undefined;
 
     // Case A: no existing match → create
     if (!emailMatch && !phoneMatch) {

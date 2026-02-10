@@ -154,8 +154,8 @@ export default function Dashboard() {
             .map(({ evt }) => evt)
             // Sort ascending by date so the soonest event comes first
             .sort((a, b) => {
-              const aDate = a.EventDate;
-              const bDate = b.EventDate;
+              const aDate = a.EventDate instanceof Date ? a.EventDate : new Date((a as any).EventDate?.seconds ? (a as any).EventDate.seconds * 1000 : (a as any).EventDate);
+              const bDate = b.EventDate instanceof Date ? b.EventDate : new Date((b as any).EventDate?.seconds ? (b as any).EventDate.seconds * 1000 : (b as any).EventDate);
               return aDate.getTime() - bDate.getTime();
             })
             // Only show the next 2 upcoming events on the dashboard
