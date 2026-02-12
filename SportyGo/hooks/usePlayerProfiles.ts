@@ -253,6 +253,19 @@ export function usePlayerProfiles(eagerIds: string[] = []) {
     };
   }, [visibleIdsVersion, visiblePlayers]);
 
+  // Force a full re-fetch of all known player profiles by clearing caches.
+  const refreshProfiles = useCallback(async () => {
+    // Clear AsyncStorage name cache
+    await AsyncStorage.removeItem(PLAYER_NAMES_CACHE_KEY).catch(() => {});
+    // Reset in-memory state so the eager fetch effect re-runs
+    eagerFetchedIdsRef.current = new Set();
+    visibleIdsRef.current = new Set();
+    loadedNamesFromCacheRef.current = true; // skip re-hydrating stale cache
+    setPlayerNames({});
+    setVisiblePlayers({});
+    setVisibleIdsVersion(0);
+  }, []);
+
   return useMemo(
     () => ({
       // Map of id -> friendly display name used throughout match history UI.
@@ -263,8 +276,10 @@ export function usePlayerProfiles(eagerIds: string[] = []) {
       onViewableItemsChanged,
       // True while the eager fetch for initial IDs is in progress.
       profilesLoading,
+      // Clears all cached profile data and triggers a fresh re-fetch.
+      refreshProfiles,
     }),
-    [playerNames, visiblePlayers, onViewableItemsChanged, profilesLoading]
+    [playerNames, visiblePlayers, onViewableItemsChanged, profilesLoading, refreshProfiles]
   );
 }
 

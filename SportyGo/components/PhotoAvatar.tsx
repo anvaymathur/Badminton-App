@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, View } from 'react-native';
 import { Avatar, Button, Text, YStack } from 'tamagui';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -198,23 +198,23 @@ export const PhotoAvatar: React.FC<PhotoAvatarProps> = ({
    * Renders either an Avatar.Image (when we have a photo) or an Avatar.Fallback showing initials.
    */
   const renderAvatarContent = () => {
-    if (hasRealImage && resolvedPhotoRef) {
-      return <Avatar.Image src={resolvedPhotoRef} />;
-    }
-
-    // When we have no name or initials, show a "+" icon to match the Create Group UX.
-    const shouldShowPlus = !resolvedPhotoRef && (!name || fallbackInitials === '?');
+    const shouldShowPlus = !hasRealImage && (!name || fallbackInitials === '?');
     return (
-      <Avatar.Fallback backgroundColor={backgroundColor} justifyContent="center" alignItems="center">
-        <Text
-          color={textColor}
-          fontSize={shouldShowPlus ? '$8' : fontSize}
-          fontWeight="bold"
-          style={{ textAlign: 'center' }}
-        >
-          {shouldShowPlus ? '+' : fallbackInitials}
-        </Text>
-      </Avatar.Fallback>
+      <>
+        <Avatar.Fallback backgroundColor={backgroundColor} justifyContent="center" alignItems="center">
+          <Text
+            color={textColor}
+            fontSize={shouldShowPlus ? '$8' : fontSize}
+            fontWeight="bold"
+            style={{ textAlign: 'center' }}
+          >
+            {shouldShowPlus ? '+' : fallbackInitials}
+          </Text>
+        </Avatar.Fallback>
+        {hasRealImage && resolvedPhotoRef && (
+          <Avatar.Image src={resolvedPhotoRef} />
+        )}
+      </>
     );
   };
 
@@ -231,46 +231,42 @@ export const PhotoAvatar: React.FC<PhotoAvatarProps> = ({
 
   return (
     <YStack style={{ alignItems: 'center' }} space="$3">
-      <Button
-        onPress={handlePickImage}
-        bg="transparent"
-        borderWidth={0}
-        p={0}
-        disabled={!editable || isUploading}
-      >
-        <Avatar
-          circular
-          size={size}
-          borderWidth={borderWidth}
-          borderColor={borderColor}
-          borderStyle={editable && !hasRealImage ? 'dashed' : 'solid'}
-          background="transparent"
-          b={b}
-          r={r}
-        >
-          {renderAvatarContent()}
-        </Avatar>
-      </Button>
-
-      {/* {editable && hasRealImage && (
+      <View style={{ position: 'relative' }}>
         <Button
-          onPress={handleRemoveImage}
-          p="$0"
-          bg="$color9"
+          onPress={handlePickImage}
+          bg="transparent"
           borderWidth={0}
-          r="$-9"
-          b="$-5"
-          disabled={isUploading}
+          p={0}
+          disabled={!editable || isUploading}
         >
-          <Ionicons name="trash" size={20} color="white" />
+          <Avatar
+            key={hasRealImage ? 'img' : 'fallback'}
+            circular
+            size={size}
+            borderWidth={borderWidth}
+            borderColor={borderColor}
+            borderStyle={editable && !hasRealImage ? 'dashed' : 'solid'}
+            background="transparent"
+            b={b}
+            r={r}
+          >
+            {renderAvatarContent()}
+          </Avatar>
         </Button>
-      )} */}
 
-      {/* {editable && (
-        <Text color="$color10" fontSize="$3" style={{ textAlign: 'center' }}>
-          {renderStatusLabel()}
-        </Text>
-      )} */}
+        {editable && hasRealImage && (
+          <Button
+            onPress={handleRemoveImage}
+            size="$2"
+            bg="$color9"
+            borderWidth={0}
+            circular
+            disabled={isUploading}
+            icon={<Ionicons name="trash" size={14} color="white" />}
+            style={{ position: 'absolute', bottom: -8, right: 8 }}
+          />
+        )}
+      </View>
     </YStack>
   );
 };

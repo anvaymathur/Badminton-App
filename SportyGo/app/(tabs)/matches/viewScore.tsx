@@ -72,6 +72,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMatchHistory } from "@/hooks/useMatchHistory";
 import { usePlayerProfiles } from "@/hooks/usePlayerProfiles";
 import { useMatchFilters } from "@/hooks/useMatchFilters";
+import { onSnapshot, doc } from "firebase/firestore";
+import { db } from "@/firebase/index";
 
 /**
  * Maps each match outcome to its accent color and display label.
@@ -347,7 +349,7 @@ export default function ViewScore() {
     return Array.from(ids);
   }, [matchHistory]);
 
-  const { playerNames, visiblePlayers, onViewableItemsChanged, profilesLoading } =
+  const { playerNames, visiblePlayers, onViewableItemsChanged, profilesLoading, refreshProfiles } =
     usePlayerProfiles(allPlayerIds);
 
   const {
@@ -391,6 +393,43 @@ export default function ViewScore() {
     pickerMinimumDate,
     setPendingValue,
   } = useMatchFilters();
+
+  // ── Profile Change Listener ─────────────────────────────────────────
+  // Listen for changes to any player profile that appears in match history.
+  // When a profile changes (name, photo, etc.), clear the cached profile
+  // data so the UI re-fetches and shows the updated information.
+  const profileListenerIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (allPlayerIds.length === 0) return;
+
+    // Only subscribe to IDs we haven't already subscribed to
+    const newIds = allPlayerIds.filter((id) => !profileListenerIdsRef.current.has(id));
+    if (newIds.length === 0) return;
+
+    // Track first snapshot per listener to skip the initial fire
+    const isFirstSnapshot = new Map<string, boolean>();
+    newIds.forEach((id) => {
+      profileListenerIdsRef.current.add(id);
+      isFirstSnapshot.set(id, true);
+    });
+
+    const unsubscribes = newIds.map((id) =>
+      onSnapshot(doc(db, "users", id), () => {
+        if (isFirstSnapshot.get(id)) {
+          isFirstSnapshot.set(id, false);
+          return; // Skip the initial snapshot
+        }
+        refreshProfiles();
+      })
+    );
+
+    return () => unsubscribes.forEach((unsub) => unsub());
+  }, [allPlayerIds, refreshProfiles]);
+
+  // Combined refresh: pull-to-refresh also re-fetches player profiles.
+  const handleFullRefresh = useCallback(async () => {
+    await Promise.all([handleRefresh(), refreshProfiles()]);
+  }, [handleRefresh, refreshProfiles]);
 
   // ── Player Display Helpers ──────────────────────────────────────────
   // Resolve display name: prefer fetched profile → cached name → raw player ID.
@@ -978,7 +1017,7 @@ export default function ViewScore() {
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={{ itemVisiblePercentThreshold: 25 }}
           refreshing={refreshing}
-          onRefresh={handleRefresh}
+          onRefresh={handleFullRefresh}
           ListEmptyComponent={() =>
             hasMatches ? (
               // Empty state when filters hide all results
